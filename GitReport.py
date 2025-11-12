@@ -2,6 +2,7 @@
 本脚本用于生成Git仓库的工作日报，包含提交历史和代码变更统计信息。
 生成的报告包括文本格式和HTML可视化格式，支持按作者分组显示提交记录。
 """
+
 """下一步计划:
 1. 增加AI分析功能，自动生成提交摘要和代码变更亮点。
 2. 增加深色模式支持，提升视觉体验。
@@ -18,6 +19,23 @@ import sys
 import logging
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import argparse
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    print("错误: google-generativeai 库未安装。请运行: pip install google-generativeai")
+    sys.exit(1)
 
 # 配置日志
 logging.basicConfig(
@@ -36,6 +54,23 @@ class GitReportConfig:
     # 使用 --numstat 可以获取增删行数和文件名
     GIT_STATS_FORMAT = 'git log --since="{time_range}" --numstat --pretty=format:""'
     OUTPUT_FILENAME_PREFIX = "GitReport"
+
+    # --- V1.0+ MOD: 优先从 .env 读取配置 ---
+
+    # AI 配置
+    # (这行保持不变，它会自动读取 .env)
+    AI_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY")
+
+    # 邮件(SMTP)配置
+    # os.getenv("SMTP_SERVER", "...") 的意思是:
+    # 尝试读取 "SMTP_SERVER" 变量，如果找不到，就使用 "smtp.example.com"
+    SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.example.com")
+    SMTP_PORT: int = 587  # (通常不需要在 .env 中配置)
+    SMTP_USER: str = os.getenv("SMTP_USER", "your-email@example.com")
+
+    # 密码只从环境变量读取，绝不硬编码
+    SMTP_PASSWORD: Optional[str] = os.getenv("SMTP_PASS")
+    # --- V1.0+ END MOD ---
 
 
 @dataclass
@@ -550,14 +585,16 @@ class GitReporter:
 
     def generate_and_save_reports(
         self, commits: List[GitCommit], stats: Dict[str, Any]
-    ) -> Optional[str]:
-        """生成并保存报告文件"""
-        # 传递 stats 字典给 generate_text_report
+    ) -> tuple[Optional[str], str]:  # 修复：使用 tuple 类型
+        """生成并保存报告文件，并返回报告路径和文本内容"""
+
+        # --- V1.0 MOD: 生成文本报告，但不打印 ---
         text_report = self.generate_text_report(commits, stats)
-        print("\n" + "=" * 50)
-        print("📄 文本报告:")
-        print("=" * 50)
-        print(text_report)
+        # print("\n" + "=" * 50)
+        # print("📄 文本报告:")
+        # print("=" * 50)
+        # print(text_report)
+        # --- V1.0 END MOD ---
 
         # 生成并保存HTML报告
         html_report = self.generate_html_report(commits, stats)
@@ -567,10 +604,16 @@ class GitReporter:
             with open(filename, "w", encoding="utf-8") as f:
                 f.write(html_report)
             logger.info(f"✅ HTML报告已保存: {filename}")
-            return filename
+
+            # --- V1.0 MOD: 返回文件名和文本报告 ---
+            return filename, text_report
+            # --- V1.0 END MOD ---
+
         except Exception as e:
             logger.error(f"❌ 保存HTML报告失败: {e}")
-            return None
+            # --- V1.0 MOD: 返回 None 和 文本报告 ---
+            return None, text_report
+            # --- V1.0 END MOD ---
 
     def open_report_in_browser(self, filename: str):
         """在浏览器中打开报告"""
@@ -586,15 +629,16 @@ class GitReporter:
         except Exception as e:
             logger.warning(f"无法自动打开报告，请手动打开: {filename}, 错误: {e}")
 
-    def main(self):
+    def main(self, args: argparse.Namespace):  # --- V1.0 MOD: 接受 args 参数 ---
         """主执行函数"""
-        logger.info("🚀 正在生成Git工作可视化报告...")
-        print("=" * 50)
 
-        # --- 新增：命令行参数解析，实现动态时间范围 (可选的额外改进) ---
-        if len(sys.argv) > 1:
-            self.__init__(time_range=" ".join(sys.argv[1:]))
-        # -------------------------------------------------------------
+        # --- V1.0 MOD: 从 args 设置时间范围 ---
+        self.config.TIME_RANGE = args.time
+        logger.info(f"🚀 正在生成Git工作报告... 时间范围: {self.config.TIME_RANGE}")
+        print("=" * 50)
+        # --- V1.0 END MOD ---
+
+        # (删除旧的 sys.argv 检查)
 
         # 检查当前目录是否为Git仓库
         if not self.is_git_repository():
@@ -617,10 +661,32 @@ class GitReporter:
         stats = self.get_git_stats()
         stats["total_commits"] = len(commits)
 
+        # --- V1.0 START: 重构报告生成和 AI 调用流程 ---
+
         # 生成并保存报告
-        filename = self.generate_and_save_reports(commits, stats)
-        if not filename:
+        html_filename, text_report = self.generate_and_save_reports(commits, stats)
+        if not html_filename:
+            logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
             return
+
+        # 生成 AI 摘要
+        ai_summary = None
+        if not args.no_ai:
+            ai_summary = self.get_ai_summary(text_report)
+
+        # 打印 AI 摘要或原始报告
+        print("\n" + "=" * 50)
+        if ai_summary:
+            print("🤖 AI 工作摘要:")
+            print("=" * 50)
+            print(ai_summary)
+        else:
+            print("📄 原始文本报告 (AI未运行或生成失败):")
+            print("=" * 50)
+            print(text_report)
+        print("=" * 50)
+
+        # --- V1.0 END ---
 
         # 显示统计信息
         print("\n📊 代码变更统计:")
@@ -630,13 +696,169 @@ class GitReporter:
         print(f"   👥 参与作者: {len(set(commit.author for commit in commits))}")
 
         # 在默认浏览器中打开报告
-        self.open_report_in_browser(filename)
+        if not args.no_browser:  # V1.0 MOD: 增加浏览器打开控制
+            self.open_report_in_browser(html_filename)
+
+        # --- V1.0 START: 邮件发送逻辑 ---
+        if args.email:
+            logger.info("准备发送邮件...")
+            # 优先使用 AI 摘要，如果失败则使用原始文本报告作为邮件正文
+            email_body_content = ai_summary if ai_summary else text_report
+
+            # (注意: 如果使用原始文本，邮件可读性会差，AI 摘要是最好的)
+            if not ai_summary:
+                logger.warning("AI 摘要不可用，将使用原始文本报告作为邮件正文。")
+
+            self.send_email_report(args.email, email_body_content, html_filename)
+        # --- V1.0 END ---
+
+    # --- V1.0 START: 新增 AI 摘要方法 ---
+    def get_ai_summary(self, text_report: str) -> Optional[str]:
+        """使用 AI 生成工作摘要"""
+        logger.info("🤖 正在调用 AI 生成摘要...")
+
+        if not self.config.AI_API_KEY:
+            logger.warning("❌ 未配置 GOOGLE_API_KEY 环境变量，跳过 AI 摘要")
+            return None
+
+        try:
+            genai.configure(api_key=self.config.AI_API_KEY)
+            model = genai.GenerativeModel(
+                "gemini-2.5-flash"
+            )  # 使用 Flash 模型，速度快成本低
+
+            prompt = f"""
+            你是一名资深的技术团队主管。
+            以下是今天团队的 Git 提交日志和代码变更统计（原始数据）：
+
+            --- 原始数据开始 ---
+            {text_report}
+            --- 原始数据结束 ---
+
+            请你基于以上原始数据，撰写一份结构清晰、重点突出、人类可读的工作日报摘要。
+            要求：
+            1.  **总体概览**: 简要总结今天的主要进展、提交总数和代码变更情况。
+            2.  **按模块/功能/作者总结**: 不要只是罗列 commit，而是将相关的工作（如 "用户登录模块"、"修复了 XXX bug"）合并归类。
+            3.  **高亮亮点**: 指出任何重大的功能上线、关键修复或需要注意的变更。
+            4.  **输出格式**: 使用 Markdown 格式化，使其易于阅读。
+            """
+
+            response = model.generate_content(prompt)
+
+            logger.info("✅ AI 摘要生成成功")
+            return response.text
+
+        except Exception as e:
+            logger.error(f"❌ AI 摘要生成失败: {e}")
+            return None
+
+    # --- V1.0 END ---
+
+    # --- V1.0 START: 新增邮件发送方法 ---
+    def send_email_report(
+        self, recipient_email: str, ai_summary: str, html_report_path: str
+    ):
+        """发送包含 AI 摘要和 HTML 附件的邮件"""
+        logger.info(f"📬 正在准备发送邮件至: {recipient_email}")
+
+        if (
+            not self.config.SMTP_SERVER
+            or not self.config.SMTP_USER
+            or not self.config.SMTP_PASSWORD
+        ):
+            logger.error(
+                "❌ 邮件(SMTP)配置不完整 (服务器, 用户, 或密码未设置)，无法发送邮件。"
+            )
+            logger.error("💡 请检查 GitReportConfig 或 SMTP_PASS 环境变量。")
+            return
+
+        try:
+            # 构造邮件
+            msg = MIMEMultipart()
+            msg["From"] = self.config.SMTP_USER
+            msg["To"] = recipient_email
+            msg["Subject"] = f"Git 工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
+
+            # 邮件正文 (使用 AI 摘要)
+            # 我们使用 HTML 格式发送正文，以便 Markdown 换行生效
+            html_body = f"""
+            <html>
+            <head></head>
+            <body>
+                <p>你好,</p>
+                <p>以下是今日的 Git 工作 AI 摘要：</p>
+                <hr>
+                <pre style="font-family: monospace; white-space: pre-wrap; padding: 10px; background: #f4f4f4; border-radius: 5px;">
+{ai_summary}
+                </pre>
+                <hr>
+                <p>详细的 HTML 可视化报告已作为附件添加，请查收。</p>
+                <p>-- 自动化报告系统</p>
+            </body>
+            </html>
+            """
+            msg.attach(MIMEText(html_body, "html"))
+
+            # 添加 HTML 报告作为附件
+            with open(html_report_path, "rb") as attachment:
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(attachment.read())
+
+            encoders.encode_base64(part)
+            part.add_header(
+                "Content-Disposition",
+                f"attachment; filename={os.path.basename(html_report_path)}",
+            )
+            msg.attach(part)
+
+            # 发送邮件
+            with smtplib.SMTP(self.config.SMTP_SERVER, self.config.SMTP_PORT) as server:
+                server.starttls()  # 启用安全连接
+                server.login(self.config.SMTP_USER, self.config.SMTP_PASSWORD)
+                server.sendmail(self.config.SMTP_USER, recipient_email, msg.as_string())
+
+            logger.info(f"✅ 邮件已成功发送至 {recipient_email}")
+
+        except Exception as e:
+            logger.error(f"❌ 发送邮件失败: {e}")
+
+    # --- V1.0 END ---
 
 
 def main():
-    """主函数入口"""
+    """主函数入口 (V1.0 重构：使用 argparse)"""
+
+    # --- V1.0 START: 设置命令行参数 ---
+    parser = argparse.ArgumentParser(description="Git 工作日报 AI 摘要生成器")
+
+    parser.add_argument(
+        "-t",
+        "--time",
+        type=str,
+        default="1 day ago",
+        help="Git log 的时间范围 (例如 '1 day ago', '2 weeks ago', '2025-10-01')",
+    )
+
+    parser.add_argument(
+        "-e", "--email", type=str, help="[可选] 报告接收者的电子邮件地址"
+    )
+
+    parser.add_argument("--no-ai", action="store_true", help="[可选] 禁用 AI 摘要功能")
+
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="[可选] 禁用自动在浏览器中打开 HTML 报告",
+    )
+
+    args = parser.parse_args()
+    # --- V1.0 END ---
+
     reporter = GitReporter()
-    reporter.main()
+
+    # --- V1.0 MOD: 将解析后的参数传递给 main 方法 ---
+    reporter.main(args)
+    # --- V1.0 END ---
 
 
 if __name__ == "__main__":
