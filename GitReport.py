@@ -37,6 +37,12 @@ except ImportError:
     print("错误: google-generativeai 库未安装。请运行: pip install google-generativeai")
     sys.exit(1)
 
+try:
+    import yagmail
+except ImportError:
+    print("错误: yagmail 库未安装。请运行: pip install yagmail")
+    sys.exit(1)
+
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -736,7 +742,9 @@ class GitReporter:
             if not ai_summary:
                 logger.warning("AI 摘要不可用，将使用原始文本报告作为邮件正文。")
 
-            email_success = self.send_email_report(args.email, email_body_content, html_filename)
+            email_success = self.send_email_report(
+                args.email, email_body_content, html_filename
+            )
 
             if email_success:
                 print("\n[📢 邮件检测: 发送请求成功，请检查收件箱 (包括垃圾邮件)]")
@@ -790,70 +798,52 @@ class GitReporter:
     def send_email_report(
         self, recipient_email: str, ai_summary: str, html_report_path: str
     ) -> bool:
-        """发送包含 AI 摘要和 HTML 附件的邮件"""
-        logger.info(f"📬 正在准备发送邮件至: {recipient_email}")
-
-        if (
-            not self.config.SMTP_SERVER
-            or not self.config.SMTP_USER
-            or not self.config.SMTP_PASSWORD
-        ):
-            logger.error(
-                "❌ 邮件(SMTP)配置不完整 (服务器, 用户, 或密码未设置)，无法发送邮件。"
-            )
-            logger.error("💡 请检查 GitReportConfig 或 SMTP_PASS 环境变量。")
-            return False
+        """(V1.2) 使用 yagmail 发送邮件，以解决 smtplib 兼容性问题"""
+        logger.info(f"📬 正在准备发送邮件至: {recipient_email} (使用 yagmail)")
 
         try:
-            # 构造邮件
-            msg = MIMEMultipart()
-            msg["From"] = self.config.SMTP_USER
-            msg["To"] = recipient_email
-            msg["Subject"] = f"Git 工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
+            # 初始化 yagmail
+            # 1. 确保你的 SMTP_PORT (在 Config 中) 设置为 587 (STARTTLS)
+            # 2. yagmail 默认使用 STARTTLS
+            yag = yagmail.SMTP(
+                user=self.config.SMTP_USER,
+                password=self.config.SMTP_PASSWORD,
+                host=self.config.SMTP_SERVER,
+                port=self.config.SMTP_PORT
+            )
 
-            # 邮件正文 (使用 AI 摘要)
-            # 我们使用 HTML 格式发送正文，以便 Markdown 换行生效
+            # 准备正文和附件
+            subject = f"Git 工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
+
+            # (注意: yagmail 会自动处理 HTML，<pre> 标签可能显示不佳，我们用 <code> 替代)
             html_body = f"""
             <html>
-            <head></head>
             <body>
                 <p>你好,</p>
                 <p>以下是今日的 Git 工作 AI 摘要：</p>
                 <hr>
-                <pre style="font-family: monospace; white-space: pre-wrap; padding: 10px; background: #f4f4f4; border-radius: 5px;">
-{ai_summary}
-                </pre>
+                <pre style="font-family: monospace; white-space: pre-wrap; padding: 10px; background: #f4f4f4; border-radius: 5px;">{ai_summary}</pre>
                 <hr>
                 <p>详细的 HTML 可视化报告已作为附件添加，请查收。</p>
-                <p>-- 自动化报告系统</p>
             </body>
             </html>
             """
-            msg.attach(MIMEText(html_body, "html"))
 
-            # 添加 HTML 报告作为附件
-            with open(html_report_path, "rb") as attachment:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(attachment.read())
-
-            encoders.encode_base64(part)
-            part.add_header(
-                "Content-Disposition",
-                f"attachment; filename={os.path.basename(html_report_path)}",
+            # 发送 (yagmail 会自动附加 html_report_path)
+            yag.send(
+                to=recipient_email,
+                subject=subject,
+                contents=html_body,
+                attachments=html_report_path
             )
-            msg.attach(part)
 
-            # 发送邮件
-            with smtplib.SMTP(self.config.SMTP_SERVER, self.config.SMTP_PORT) as server:
-                server.starttls()  # 启用安全连接
-                server.login(self.config.SMTP_USER, self.config.SMTP_PASSWORD)
-                server.sendmail(self.config.SMTP_USER, recipient_email, msg.as_string())
-
+            # yagmail 会在发送失败时自动抛出异常，所以能运行到这里就是成功
             logger.info(f"✅ 邮件已成功发送至 {recipient_email}")
             return True
 
         except Exception as e:
-            logger.error(f"❌ 发送邮件失败: {e}")
+            # yagmail 的错误信息通常更友好
+            logger.error(f"❌ (yagmail) 发送邮件失败: {e}")
             return False
 
     # --- V1.0 END ---
