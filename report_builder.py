@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from models import GitCommit
+import markdown
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,95 @@ def get_css_styles() -> str:
             color: #e74c3c; /* 红色 */
             font-weight: bold;
         }
+        /* --- V1.3 START: AI 摘要 (Markdown 渲染) 样式 --- */
+        .ai-summary .markdown-body {
+            /* 保持和原先 pre 标签一致的字体，但更易读 */
+            font-family: 'Arial', sans-serif;
+            line-height: 1.7;
+            color: #333;
+        }
+
+        .ai-summary .markdown-body h1,
+        .ai-summary .markdown-body h2,
+        .ai-summary .markdown-body h3,
+        .ai-summary .markdown-body h4 {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace; /* 标题用回等宽字体，保持风格 */
+            color: #2c3e50;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 5px;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+
+        .ai-summary .markdown-body p {
+            margin-bottom: 15px;
+        }
+
+        .ai-summary .markdown-body ul,
+        .ai-summary .markdown-body ol {
+            padding-left: 30px;
+            margin-bottom: 15px;
+        }
+
+        .ai-summary .markdown-body li {
+            margin-bottom: 8px;
+        }
+
+        /* 重点：代码块 (```code```) 样式 */
+        .ai-summary .markdown-body pre {
+            background: #f4f7f9; /* 浅灰色背景 */
+            border: 1px solid #e0e6ed;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            overflow-x: auto; /* 水平滚动 */
+            font-size: 0.95em;
+        }
+
+        /* 行内代码 (`code`) 样式 */
+        .ai-summary .markdown-body code {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: #fceceb; /* 淡红色背景 */
+            color: #c7254e; /* 暗红色 */
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .ai-summary .markdown-body pre code {
+            /* 嵌套在 pre 里的 code 样式重置 */
+            background: none;
+            color: inherit;
+            padding: 0;
+        }
+
+        .ai-summary .markdown-body blockquote {
+            border-left: 5px solid #bdc3c7; /* 灰色引用条 */
+            padding-left: 15px;
+            margin-left: 0;
+            color: #555;
+            font-style: italic;
+        }
+
+        .ai-summary .markdown-body table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+            border: 1px solid #ddd;
+        }
+
+        .ai-summary .markdown-body th,
+        .ai-summary .markdown-body td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        .ai-summary .markdown-body th {
+            background: #f9f9f9;
+            font-weight: bold;
+        }
+        /* --- V1.3 END --- */
         """
 
 
@@ -309,13 +399,19 @@ def generate_html_commits(commits: List[GitCommit]) -> str:
 
 
 def generate_html_ai_summary(ai_summary: Optional[str]) -> str:
-    """生成 AI 摘要的 HTML 块"""
+    """生成 AI 摘要的 HTML 块 (Markdown 渲染)"""
     if not ai_summary:
         return ""
+
+    html_summary = markdown.markdown(ai_summary, extensions=["fenced_code", "tables"])
+
     return f"""
         <div class="ai-summary">
             <h2 style="margin-top: 0; color: #667eea;">🤖 AI 工作摘要</h2>
-            <pre style="white-space: pre-wrap; font-family: inherit; font-size: 1.05em; background: #f9f9f9; padding: 15px; border-radius: 5px; border: 1px solid #eee;">{ai_summary}</pre>
+
+            <div class="markdown-body">
+                {html_summary}
+            </div>
         </div>
     """
 
