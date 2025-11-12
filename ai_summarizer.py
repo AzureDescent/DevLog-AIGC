@@ -22,8 +22,8 @@ def get_ai_summary(config: GitReportConfig, text_report: str) -> Optional[str]:
         return None
 
     try:
-        genai.configure(api_key=config.AI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        genai.configure(api_key=config.AI_API_KEY)  # type: ignore
+        model = genai.GenerativeModel("gemini-2.5-flash")  # type: ignore
 
         prompt = f"""
         你是一名资深的技术团队主管。

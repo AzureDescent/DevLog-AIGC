@@ -15,10 +15,10 @@ class GitReportConfig:
     OUTPUT_FILENAME_PREFIX = "GitReport"
 
     # AI 配置
-    AI_API_KEY: str = os.getenv("GOOGLE_API_KEY")
+    AI_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 
     # 邮件(SMTP)配置
     SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.example.com")
     SMTP_PORT: int = 587
     SMTP_USER: str = os.getenv("SMTP_USER", "your-email@example.com")
-    SMTP_PASSWORD: str = os.getenv("SMTP_PASS")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASS", "")
