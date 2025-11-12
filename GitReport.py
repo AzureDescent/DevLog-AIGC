@@ -331,6 +331,21 @@ class GitReporter:
             padding-bottom: 20px;
             margin-bottom: 30px;
         }
+
+        /* --- V1.1 START: 增加 AI 摘要区域样式 --- */
+        .ai-summary {
+            background: #fdfdfd;
+            border: 1px solid #eee;
+            border-left: 5px solid #667eea;
+            padding: 20px 25px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+            font-family: 'Arial', sans-serif; /* AI 摘要使用更易读的非等宽字体 */
+            line-height: 1.6;
+            color: #333;
+        }
+        /* --- V1.1 END --- */
+
         .commit {
             padding: 15px;
             margin: 10px 0;
@@ -554,7 +569,10 @@ class GitReporter:
         return commits_html
 
     def generate_html_report(
-        self, commits: List[GitCommit], stats: Dict[str, Any]
+        self,
+        commits: List[GitCommit],
+        stats: Dict[str, Any],
+        ai_summary: Optional[str],  # --- V1.1 MOD: 增加 ai_summary ---
     ) -> str:
         """生成HTML格式的可视化报告"""
         html_template = """
@@ -568,6 +586,7 @@ class GitReporter:
         <body>
             <div class="container">
                 {header}
+                {ai_summary_section}
                 {stats_section}
                 {commits_section}
             </div>
@@ -579,41 +598,43 @@ class GitReporter:
             title=f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}",
             css=self.get_css_styles(),
             header=self.generate_html_header(),
+            ai_summary_section=self.generate_html_ai_summary(
+                ai_summary
+            ),  # --- V1.1 ADD ---
             stats_section=self.generate_html_stats(commits, stats),
             commits_section=self.generate_html_commits(commits),
         )
 
-    def generate_and_save_reports(
-        self, commits: List[GitCommit], stats: Dict[str, Any]
-    ) -> tuple[Optional[str], str]:  # 修复：使用 tuple 类型
-        """生成并保存报告文件，并返回报告路径和文本内容"""
-
-        # --- V1.0 MOD: 生成文本报告，但不打印 ---
-        text_report = self.generate_text_report(commits, stats)
-        # print("\n" + "=" * 50)
-        # print("📄 文本报告:")
-        # print("=" * 50)
-        # print(text_report)
-        # --- V1.0 END MOD ---
-
-        # 生成并保存HTML报告
-        html_report = self.generate_html_report(commits, stats)
+    # --- V1.1 START: 新增 HTML 保存函数 ---
+    def save_html_report(self, html_content: str) -> Optional[str]:
+        """保存HTML报告到文件"""
         filename = f"{self.config.OUTPUT_FILENAME_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-
         try:
             with open(filename, "w", encoding="utf-8") as f:
-                f.write(html_report)
+                f.write(html_content)
             logger.info(f"✅ HTML报告已保存: {filename}")
-
-            # --- V1.0 MOD: 返回文件名和文本报告 ---
-            return filename, text_report
-            # --- V1.0 END MOD ---
-
+            return filename
         except Exception as e:
             logger.error(f"❌ 保存HTML报告失败: {e}")
-            # --- V1.0 MOD: 返回 None 和 文本报告 ---
-            return None, text_report
-            # --- V1.0 END MOD ---
+            return None
+
+    # --- V1.1 END ---
+
+    # --- V1.1 START: 新增 AI 摘要 HTML 生成函数 ---
+    def generate_html_ai_summary(self, ai_summary: Optional[str]) -> str:
+        """生成 AI 摘要的 HTML 块"""
+        if not ai_summary:
+            return ""  # 如果没有 AI 摘要，返回空字符串
+
+        # 使用 <pre> 标签来完美保留 AI 输出的 Markdown 格式 (换行、空格)
+        return f"""
+            <div class="ai-summary">
+                <h2 style="margin-top: 0; color: #667eea;">🤖 AI 工作摘要</h2>
+                <pre style="white-space: pre-wrap; font-family: inherit; font-size: 1.05em; background: #f9f9f9; padding: 15px; border-radius: 5px; border: 1px solid #eee;">{ai_summary}</pre>
+            </div>
+        """
+
+    # --- V1.1 END ---
 
     def open_report_in_browser(self, filename: str):
         """在浏览器中打开报告"""
@@ -663,16 +684,22 @@ class GitReporter:
 
         # --- V1.0 START: 重构报告生成和 AI 调用流程 ---
 
-        # 生成并保存报告
-        html_filename, text_report = self.generate_and_save_reports(commits, stats)
-        if not html_filename:
-            logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
-            return
+        # 1. 先生成文本报告 (AI 摘要需要它)
+        text_report = self.generate_text_report(commits, stats)
 
-        # 生成 AI 摘要
+        # 2. 生成 AI 摘要 (如果启用)
         ai_summary = None
         if not args.no_ai:
             ai_summary = self.get_ai_summary(text_report)
+
+        # 3. 再生成 HTML 报告 (它需要 AI 摘要)
+        html_content = self.generate_html_report(commits, stats, ai_summary)
+
+        # 4. 保存 HTML 报告
+        html_filename = self.save_html_report(html_content)
+        if not html_filename:
+            logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
+            return
 
         # 打印 AI 摘要或原始报告
         print("\n" + "=" * 50)
@@ -709,7 +736,12 @@ class GitReporter:
             if not ai_summary:
                 logger.warning("AI 摘要不可用，将使用原始文本报告作为邮件正文。")
 
-            self.send_email_report(args.email, email_body_content, html_filename)
+            email_success = self.send_email_report(args.email, email_body_content, html_filename)
+
+            if email_success:
+                print("\n[📢 邮件检测: 发送请求成功，请检查收件箱 (包括垃圾邮件)]")
+            else:
+                print("\n[❌ 邮件检测: 发送失败，请检查终端日志中的详细错误信息和配置]")
         # --- V1.0 END ---
 
     # --- V1.0 START: 新增 AI 摘要方法 ---
@@ -757,7 +789,7 @@ class GitReporter:
     # --- V1.0 START: 新增邮件发送方法 ---
     def send_email_report(
         self, recipient_email: str, ai_summary: str, html_report_path: str
-    ):
+    ) -> bool:
         """发送包含 AI 摘要和 HTML 附件的邮件"""
         logger.info(f"📬 正在准备发送邮件至: {recipient_email}")
 
@@ -770,7 +802,7 @@ class GitReporter:
                 "❌ 邮件(SMTP)配置不完整 (服务器, 用户, 或密码未设置)，无法发送邮件。"
             )
             logger.error("💡 请检查 GitReportConfig 或 SMTP_PASS 环境变量。")
-            return
+            return False
 
         try:
             # 构造邮件
@@ -818,48 +850,39 @@ class GitReporter:
                 server.sendmail(self.config.SMTP_USER, recipient_email, msg.as_string())
 
             logger.info(f"✅ 邮件已成功发送至 {recipient_email}")
+            return True
 
         except Exception as e:
             logger.error(f"❌ 发送邮件失败: {e}")
+            return False
 
     # --- V1.0 END ---
 
 
-def main():
-    """主函数入口 (V1.0 重构：使用 argparse)"""
-
-    # --- V1.0 START: 设置命令行参数 ---
-    parser = argparse.ArgumentParser(description="Git 工作日报 AI 摘要生成器")
+if __name__ == "__main__":
+    # 1. 设置命令行参数解析
+    # (这会解析 --time, --no-ai, --email 等参数)
+    parser = argparse.ArgumentParser(description="Git 工作日报生成器")
 
     parser.add_argument(
         "-t",
         "--time",
         type=str,
-        default="1 day ago",
-        help="Git log 的时间范围 (例如 '1 day ago', '2 weeks ago', '2025-10-01')",
+        default=GitReportConfig.TIME_RANGE,  # 使用配置中的默认值
+        help=f"指定Git日志的时间范围 (例如 '1 day ago', '2 weeks ago'). 默认: '{GitReportConfig.TIME_RANGE}'",
     )
-
+    parser.add_argument("--no-ai", action="store_true", help="禁用 AI 摘要功能")
     parser.add_argument(
-        "-e", "--email", type=str, help="[可选] 报告接收者的电子邮件地址"
+        "--no-browser", action="store_true", help="不自动在浏览器中打开报告"
     )
+    parser.add_argument("-e", "--email", type=str, help="报告生成后发送邮件到指定地址")
 
-    parser.add_argument("--no-ai", action="store_true", help="[可选] 禁用 AI 摘要功能")
-
-    parser.add_argument(
-        "--no-browser",
-        action="store_true",
-        help="[可选] 禁用自动在浏览器中打开 HTML 报告",
-    )
-
+    # 2. 解析参数，生成 main 方法需要的 'args' 对象
     args = parser.parse_args()
-    # --- V1.0 END ---
 
+    # 3. 创建 GitReporter 类的实例 (这就提供了 'self')
     reporter = GitReporter()
 
-    # --- V1.0 MOD: 将解析后的参数传递给 main 方法 ---
+    # 4. 调用实例的 main 方法，并传入 'args'
+    #    这将调用 GitReporter 类内部的 main 方法
     reporter.main(args)
-    # --- V1.0 END ---
-
-
-if __name__ == "__main__":
-    main()
