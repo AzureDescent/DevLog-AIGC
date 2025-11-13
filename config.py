@@ -37,10 +37,18 @@ class GitReportConfig:
     PROJECT_DATA_PATH: str = ""
     # --- (V3.1 结束) ---
 
-    # 原始配置
-    TIME_RANGE: str = "1 day ago"
-    GIT_LOG_FORMAT = 'git log --since="{time_range}" --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'
-    GIT_STATS_FORMAT = 'git log --since="{time_range}" --numstat --pretty=format:""'
+    # --- (修改) V3.2: 范围参数化 ---
+    # 1. 用于日志输出的描述
+    TIME_RANGE_DESCRIPTION: str = "1 day ago"
+    # 2. 用于 git 命令的实际参数
+    COMMIT_RANGE_ARG: str = '--since="1 day ago"'
+    # --- (V3.2 结束) ---
+
+    # --- (修改) V3.2: 更新 Git 命令格式 ---
+    GIT_LOG_FORMAT = 'git log {commit_range_arg} --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'
+    GIT_STATS_FORMAT = 'git log {commit_range_arg} --numstat --pretty=format:""'
+    # --- (V3.2 结束) ---
+
     GIT_COMMIT_DIFF_FORMAT = 'git show {commit_hash} --pretty="" --no-color'
 
     # V2.2 记忆文件 (文件名保持相对，我们将用 SCRIPT_BASE_PATH 组合)

@@ -73,9 +73,11 @@ def is_git_repository(repo_path: str) -> bool:
 
 
 def get_git_log(config: GitReportConfig) -> Optional[str]:
-    """获取Git提交历史"""
-    cmd = config.GIT_LOG_FORMAT.format(time_range=config.TIME_RANGE)
-    # --- (V3.0) 修改: 传入 config.REPO_PATH ---
+    """
+    (修改) V3.2: 获取Git提交历史
+    - 使用 COMMIT_RANGE_ARG 替代 time_range
+    """
+    cmd = config.GIT_LOG_FORMAT.format(commit_range_arg=config.COMMIT_RANGE_ARG)
     return run_git_command(cmd, config.REPO_PATH, "获取Git提交历史")
 
 
@@ -121,16 +123,20 @@ def parse_git_log(log_output: str) -> List[GitCommit]:
 
 
 def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
-    """获取Git统计信息和文件变更详情（已实现智能过滤）"""
+    """
+    (修改) V3.2: 获取Git统计信息
+    - 使用 COMMIT_RANGE_ARG 替代 time_range
+    """
     stats = {
         "additions": 0,
         "deletions": 0,
         "files_changed": 0,
         "file_stats": [],
     }
-    # --- (V3.0) 修改: 传入 config.REPO_PATH ---
+
+    cmd = config.GIT_STATS_FORMAT.format(commit_range_arg=config.COMMIT_RANGE_ARG)
     output = run_git_command(
-        config.GIT_STATS_FORMAT.format(time_range=config.TIME_RANGE),
+        cmd,
         config.REPO_PATH,
         "获取Git统计信息",
     )
@@ -154,7 +160,6 @@ def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
                         if fnmatch.fnmatch(filename, pattern):
                             is_filtered = True
                             break
-
                     if is_filtered:
                         logger.info(f"智能过滤: 已跳过文件 {filename}")
                         continue

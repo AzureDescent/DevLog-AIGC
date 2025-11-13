@@ -1,10 +1,7 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
-Git工作日报生成器 (V3.1)
+Git工作日报生成器 (V3.2)
 本脚本用于协调 Git 报告的生成、AI 分析和分发。
-- V3.1: 实现了项目数据的完全隔离。
+- V3.2: 增加 -n/--number 参数，与 -t 互斥。
 """
 
 import argparse
@@ -30,47 +27,50 @@ logger = logging.getLogger(__name__)
 def main_flow(args: argparse.Namespace):
     """
     主执行流程
-    (V3.1 重构)
+    (V3.2 重构)
     """
 
     # 1. 加载配置
     cfg = GitReportConfig()
-    cfg.TIME_RANGE = args.time
 
     # --- (V3.0) 设置 REPO_PATH ---
     cfg.REPO_PATH = os.path.abspath(args.repo_path)
 
-    # --- (新增) V3.1: 构建项目专属数据路径 ---
+    # --- (新增) V3.2: 根据互斥参数设置范围 ---
+    # args.number 存在 (用户使用了 -n 5)
+    if args.number:
+        cfg.COMMIT_RANGE_ARG = f"-n {args.number}"
+        cfg.TIME_RANGE_DESCRIPTION = f"最近 {args.number} 次提交"
+    # 默认或用户使用了 -t '...'
+    else:
+        # 如果用户 -t 和 -n 都没指定，args.time 会是 None，我们设置默认值
+        time_str = args.time if args.time else "1 day ago"
+        cfg.COMMIT_RANGE_ARG = f'--since="{time_str}"'
+        cfg.TIME_RANGE_DESCRIPTION = time_str
+    # --- (V3.2 结束) ---
+
+    # --- (V3.1) 构建项目专属数据路径 ---
     try:
-        # 1. 获取项目名 (即 --repo-path 的最后一个文件夹名)
-        #    如果 repo_path 是 "."，使用 'current_dir_project'
         if os.path.basename(cfg.REPO_PATH) == ".":
             project_name = "current_dir_project"
         else:
             project_name = os.path.basename(cfg.REPO_PATH)
-
-        # 2. 构建根数据目录 (e.g., /path/to/script/data)
         data_root_path = os.path.join(cfg.SCRIPT_BASE_PATH, cfg.DATA_ROOT_DIR_NAME)
-
-        # 3. 构建项目专属数据目录 (e.g., /path/to/script/data/Project-A)
         cfg.PROJECT_DATA_PATH = os.path.join(data_root_path, project_name)
-
-        # 4. 确保这个专属目录存在
         os.makedirs(cfg.PROJECT_DATA_PATH, exist_ok=True)
-
     except Exception as e:
         logger.error(f"❌ (V3.1) 创建项目数据目录失败: {e}")
         sys.exit(1)
-    # --- (V3.1 结束) ---
 
     logger.info("=" * 50)
-    logger.info(f"🚀 (V3.1) DevLog-AIGC 启动...")
+    logger.info(f"🚀 (V3.2) DevLog-AIGC 启动...")
     logger.info(f"   [目标仓库 (REPO_PATH)]: {cfg.REPO_PATH}")
-    logger.info(f"   [数据存储 (DATA_PATH)]: {cfg.PROJECT_DATA_PATH}")  # V3.1 修改
-    logger.info(f"   [时间范围]: {cfg.TIME_RANGE}")
+    logger.info(f"   [数据存储 (DATA_PATH)]: {cfg.PROJECT_DATA_PATH}")
+    # --- (V3.2) 修改: 使用 TIME_RANGE_DESCRIPTION ---
+    logger.info(f"   [分析范围]: {cfg.TIME_RANGE_DESCRIPTION}")
     logger.info("=" * 50)
 
-    # (V2.4) 创建 AI 实例 (现在 cfg 包含了 PROJECT_DATA_PATH)
+    # (V2.4) 创建 AI 实例
     ai_service = AIService(cfg)
 
     # --- (V3.0) 读取 README ---
@@ -85,12 +85,9 @@ def main_flow(args: argparse.Namespace):
     except Exception as e:
         logger.error(f"❌ 读取 README.md 失败 ({readme_path}): {e}")
 
-    # --- (V3.1) 修改: 从 项目专属路径 读取“压缩记忆” ---
+    # --- (V3.1) 读取“压缩记忆” ---
     previous_summary = None
-    memory_file_path = os.path.join(
-        cfg.PROJECT_DATA_PATH, cfg.PROJECT_MEMORY_FILE
-    )  # V3.1 修改
-
+    memory_file_path = os.path.join(cfg.PROJECT_DATA_PATH, cfg.PROJECT_MEMORY_FILE)
     if not args.no_ai:
         try:
             with open(memory_file_path, "r", encoding="utf-8") as f:
@@ -102,16 +99,18 @@ def main_flow(args: argparse.Namespace):
         except Exception as e:
             logger.error(f"❌ 加载压缩记忆失败 ({memory_file_path}): {e}")
 
-    # 2. 检查环境
+    # 2. 检查环境 (V3.0 不变)
     if not git_utils.is_git_repository(cfg.REPO_PATH):
         logger.error(f"❌ 指定路径不是Git仓库: {cfg.REPO_PATH}")
         return
 
-    # 3. 获取和解析 Git 数据
+    # 3. 获取和解析 Git 数据 (V3.2: 内部已适配)
     log_output = git_utils.get_git_log(cfg)
     if not log_output:
         logger.error("❌ 未获取到Git提交记录")
+        print(f"💡 提示: 在 '{cfg.TIME_RANGE_DESCRIPTION}' 范围内可能没有提交。")
         return
+
     commits = git_utils.parse_git_log(log_output)
     stats = git_utils.get_git_stats(cfg)
     stats["total_commits"] = len(commits)
@@ -152,19 +151,11 @@ def main_flow(args: argparse.Namespace):
 
     # 7. 生成 HTML 报告
     html_content = report_builder.generate_html_report(commits, stats, ai_summary)
-
-    # --- (V3.1) 修改: report_builder 内部将使用 cfg.PROJECT_DATA_PATH ---
     html_filename_full_path = report_builder.save_html_report(html_content, cfg)
 
-    # --- (V2.2) 更新“记忆”系统 ---
+    # 8. 更新“记忆”系统
     if ai_summary:
-
-        # --- (V3.1) 修改: 写入 项目专属路径 ---
-        log_file_path = os.path.join(
-            cfg.PROJECT_DATA_PATH, cfg.PROJECT_LOG_FILE
-        )  # V3.1 修改
-
-        # 7.1. 写入“地基”日志
+        log_file_path = os.path.join(cfg.PROJECT_DATA_PATH, cfg.PROJECT_LOG_FILE)
         try:
             log_entry = {
                 "date": datetime.now().strftime("%Y-%m-%d"),
@@ -176,18 +167,14 @@ def main_flow(args: argparse.Namespace):
                 f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
             logger.info(f"✅ 成功追加到项目日志 ({log_file_path})")
 
-            # 7.2. 触发“记忆蒸馏” (V3.1: ai_service 内部已适配)
             new_compressed_memory = ai_service.distill_project_memory()
-
             if new_compressed_memory:
-                # --- (V3.1) 修改: 写入 项目专属路径 ---
                 memory_write_path = os.path.join(
                     cfg.PROJECT_DATA_PATH, cfg.PROJECT_MEMORY_FILE
-                )  # V3.1 修改
+                )
                 with open(memory_write_path, "w", encoding="utf-8") as f:
                     f.write(new_compressed_memory)
                 logger.info(f"✅ 成功重写压缩记忆 ({memory_write_path})")
-
         except Exception as e:
             logger.error(f"❌ 更新记忆系统失败: {e}")
 
@@ -195,7 +182,7 @@ def main_flow(args: argparse.Namespace):
         logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
         return
 
-    # --- (V2.3) 风格转换 ---
+    # 9. 风格转换
     public_article = None
     if ai_summary and previous_summary and not args.no_ai:
         logger.info("🤖 启动 V2.3 风格转换...")
@@ -204,14 +191,9 @@ def main_flow(args: argparse.Namespace):
             previous_summary,
             project_readme,
         )
-
         if public_article:
-            # --- (V3.1) 修改: 写入 项目专属路径 ---
             article_filename = f"PublicArticle_{datetime.now().strftime('%Y%m%d')}.md"
-            article_full_path = os.path.join(
-                cfg.PROJECT_DATA_PATH, article_filename
-            )  # V3.1 修改
-
+            article_full_path = os.path.join(cfg.PROJECT_DATA_PATH, article_filename)
             try:
                 with open(article_full_path, "w", encoding="utf-8") as f:
                     f.write(public_article)
@@ -223,7 +205,7 @@ def main_flow(args: argparse.Namespace):
             except Exception as e:
                 logger.error(f"❌ 保存公众号文章失败: {e}")
 
-    # 8. 打印摘要到控制台
+    # 10. 打印摘要到控制台
     print("\n" + "=" * 50)
     if ai_summary:
         print("🤖 AI 工作摘要:")
@@ -235,24 +217,23 @@ def main_flow(args: argparse.Namespace):
         print(text_report)
     print("=" * 50)
 
-    # 9. 打印统计
+    # 11. 打印统计
     print("\n📊 代码变更统计:")
     print(f"   📈 新增行数: {stats['additions']}")
     print(f"   📉 删除行数: {stats['deletions']}")
     print(f"   📁 修改文件: {stats['files_changed']} (详情已包含在报告中)")
     print(f"   👥 参与作者: {len(set(commit.author for commit in commits))}")
 
-    # 10. (可选) 打开浏览器
+    # 12. (可选) 打开浏览器
     if not args.no_browser:
         utils.open_report_in_browser(html_filename_full_path)
 
-    # 11. (可选) 发送邮件
+    # 13. (可选) 发送邮件
     if args.email:
         logger.info("准备发送邮件...")
         email_body_content = ai_summary if ai_summary else text_report
         if not ai_summary:
             logger.warning("AI 摘要不可用，将使用原始文本报告作为邮件正文。")
-
         email_success = email_sender.send_email_report(
             cfg,
             args.email,
@@ -271,7 +252,7 @@ def main_flow(args: argparse.Namespace):
 if __name__ == "__main__":
     # 1. 设置命令行参数解析
     parser = argparse.ArgumentParser(
-        description="Git 工作日报生成器 (V3.1)",  # V3.1 修改
+        description="Git 工作日报生成器 (V3.2)",
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
@@ -284,13 +265,22 @@ if __name__ == "__main__":
         help="[V3.0] 指定要分析的 Git 仓库的根目录路径。\n(默认: '.')",
     )
 
-    parser.add_argument(
+    # --- (新增) V3.2: 创建互斥参数组 ---
+    range_group = parser.add_mutually_exclusive_group()
+    range_group.add_argument(
         "-t",
         "--time",
         type=str,
-        default=GitReportConfig.TIME_RANGE,
-        help=f"指定Git日志的时间范围 (例如 '1 day ago').\n(默认: '{GitReportConfig.TIME_RANGE}')",
+        help="指定Git日志的时间范围 (例如 '1 day ago').\n(默认: '1 day ago')",
     )
+    range_group.add_argument(
+        "-n",
+        "--number",
+        type=int,
+        help="[V3.2] 指定最近 N 次提交 (例如 5)。\n(与 -t 互斥)",
+    )
+    # --- (V3.2 结束) ---
+
     parser.add_argument("--no-ai", action="store_true", help="禁用 AI 摘要功能")
     parser.add_argument(
         "--no-browser", action="store_true", help="不自动在浏览器中打开报告"
