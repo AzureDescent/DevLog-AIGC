@@ -17,6 +17,7 @@ import git_utils
 import report_builder
 import ai_summarizer
 import email_sender
+import os
 
 # 1. 初始化日志
 utils.setup_logging()
@@ -34,6 +35,22 @@ def main_flow(args: argparse.Namespace):
     cfg.TIME_RANGE = args.time
     logger.info(f"🚀 正在生成Git工作报告... 时间范围: {cfg.TIME_RANGE}")
     print("=" * 50)
+
+    # --- (新增) V2.1 START: 读取历史摘要 ---
+    previous_summary = None
+    if not args.no_ai:  # 只有在启用 AI 时才尝试读取
+        try:
+            with open(cfg.AI_CACHE_FILENAME, "r", encoding="utf-8") as f:
+                previous_summary = f.read()
+            if previous_summary:
+                logger.info(f"✅ 成功加载历史 AI 摘要缓存 ({cfg.AI_CACHE_FILENAME})")
+        except FileNotFoundError:
+            logger.info(
+                f"ℹ️ 未找到历史摘要缓存 ({cfg.AI_CACHE_FILENAME})，将创建新缓存。"
+            )
+        except Exception as e:
+            logger.error(f"❌ 加载历史摘要缓存失败: {e}")
+    # --- (新增) V2.1 END ---
 
     # 2. 检查环境
     if not git_utils.is_git_repository():
@@ -94,13 +111,25 @@ def main_flow(args: argparse.Namespace):
     # 5. (可选) AI 分析
     ai_summary = None
     if not args.no_ai:
-        ai_summary = ai_summarizer.get_ai_summary(cfg, text_report, ai_diff_summary)
+        ai_summary = ai_summarizer.get_ai_summary(
+            cfg, text_report, ai_diff_summary, previous_summary
+        )
 
     # 6. 生成最终 HTML 报告
     html_content = report_builder.generate_html_report(commits, stats, ai_summary)
     html_filename = report_builder.save_html_report(
         html_content, cfg.OUTPUT_FILENAME_PREFIX
     )
+
+    # --- (新增) V2.1 START: 写入/更新缓存 ---
+    if ai_summary:  # 只有在AI成功生成 *新* 摘要后才更新缓存
+        try:
+            with open(cfg.AI_CACHE_FILENAME, "w", encoding="utf-8") as f:
+                f.write(ai_summary)
+            logger.info(f"✅ 成功更新 AI 摘要缓存 ({cfg.AI_CACHE_FILENAME})")
+        except Exception as e:
+            logger.error(f"❌ 写入 AI 摘要缓存失败: {e}")
+    # --- (新增) V2.1 END ---
 
     if not html_filename:
         logger.error("❌ HTML 报告文件生成失败，中止后续操作。")

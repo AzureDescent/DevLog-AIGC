@@ -22,6 +22,11 @@ class GitReportConfig:
 
     OUTPUT_FILENAME_PREFIX = "GitReport"
 
+    # --- (新增) V2.1 START ---
+    # 定义 AI 摘要的缓存文件名
+    AI_CACHE_FILENAME: str = ".ai_summary_cache.md"
+    # --- (新增) V2.1 END ---
+
     # =================================================================
     # 新增：智能过滤 (Sieving) 模式
     # 使用 fnmatch 语法 (https://docs.python.org/3/library/fnmatch.html)

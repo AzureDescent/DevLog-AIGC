@@ -78,6 +78,7 @@ def get_ai_summary(
     text_report: str,
     # (修改) V2.0: 接收 "Map" 阶段的结果
     diff_summaries: Optional[str] = None,
+    previous_summary: Optional[str] = None,
 ) -> Optional[str]:
     """
     (修改 "Reduce" 阶段)
@@ -89,34 +90,42 @@ def get_ai_summary(
     if not model:
         return None
 
-    # (修改) V2.0: 更新 Prompt 以包含 diff 摘要
+    # (修改) V2.1: 更新 Prompt 以包含 previous_summary
     prompt = f"""
-    你是一名资深的技术团队主管。
-    以下是今天团队的 Git 提交日志、代码变更统计（原始数据），
-    以及（可选的）AI 对每条代码变更的逐条总结：
+    你是一名资深的技术团队主管，你正在撰写一份连续的工作日报。
 
-    --- 原始数据（Git 日志）开始 ---
+    {f'''
+    --- 这是你昨天的工作摘要（历史上下文） ---
+    {previous_summary}
+    --- 历史上下文结束 ---
+    ''' if previous_summary and previous_summary.strip() else ''}
+
+    现在，这是今天团队的 Git 提交日志、代码变更统计，以及（可选的）AI 对每条代码变更的逐条总结：
+
+    --- 今天的原始数据（Git 日志） ---
     {text_report}
     --- 原始数据结束 ---
 
     {f'''
-    --- AI 生成的逐条代码变更总结 ---
+    --- 今天 AI 生成的逐条代码变更总结 (Diffs) ---
     {diff_summaries}
     --- 代码变更总结结束 ---
     ''' if diff_summaries and diff_summaries.strip() else ''}
 
-    请你基于以上**所有信息**，撰写一份结构清晰、重点突出、人类可读的工作日报摘要。
+    请你基于**历史上下文**（如果提供了）和**今天的全部新数据**，撰写一份结构清晰、重点突出、人类可读的*今日*工作日报摘要。
     要求：
-    1.  **总体概览**: 简要总结今天的主要进展、提交总数和代码变更情况。
-    2.  **按模块/功能/作者总结**: 不要只是罗列 commit。
-        (如果提供了 'AI 逐条总结'，请优先使用该信息来理解变更的 *真实内容*，而不是只看 commit message。)
-    3.  **高亮亮点**: 指出任何重大的功能上线、关键修复或需要注意的变更。
+    1.  **体现连续性**: 在"总体概览"部分，请*务必*将今天的工作与昨天的摘要（如果提供了）联系起来。
+        例如："在昨天完成了XX模块重构的基础上，今天团队..."
+        或："今天的工作主要在修复昨天引入的XX问题..."
+        或："延续昨天的开发，今天XX功能已完成..."
+    2.  **按模块/功能/作者总结**: 合并归类今天的工作。优先使用 'AI 逐条总结' 来理解真实变更。
+    3.  **高亮亮点**: 指出今天任何重大的功能上线、关键修复或需要注意的变更。
     4.  **输出格式**: 使用 Markdown 格式化，使其易于阅读。
     """
 
     try:
         response = model.generate_content(prompt)
-        logger.info("✅ AI 最终摘要生成成功")
+        logger.info("✅ AI 最终摘要生成成功 (已包含历史上下文)")
         return response.text
 
     except Exception as e:
