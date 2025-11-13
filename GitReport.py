@@ -1,4 +1,4 @@
-#!/usr.bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """
@@ -15,7 +15,9 @@ from config import GitReportConfig
 import utils
 import git_utils
 import report_builder
-import ai_summarizer
+
+# (V2.4 重构: 导入 AIService 类)
+from ai_summarizer import AIService
 import email_sender
 import os  # noqa
 import json
@@ -37,6 +39,9 @@ def main_flow(args: argparse.Namespace):
     cfg.TIME_RANGE = args.time
     logger.info(f"🚀 正在生成Git工作报告... 时间范围: {cfg.TIME_RANGE}")
     print("=" * 50)
+
+    # (V2.4 重构: 在流程早期创建单一 AI 实例)
+    ai_service = AIService(cfg)
 
     # 1.1. 读取 README 文件，作为项目元数据
     project_readme = None
@@ -102,10 +107,8 @@ def main_flow(args: argparse.Namespace):
             diff_content = git_utils.get_commit_diff(cfg, commit.hash)  #
 
             if diff_content:
-                # (调用我们在 ai_summarizer.py 中添加的新函数)
-                single_summary = ai_summarizer.get_single_diff_summary(
-                    cfg, diff_content
-                )
+                # (V2.4 重构: 使用 ai_service 实例的方法)
+                single_summary = ai_service.get_single_diff_summary(diff_content)
                 if single_summary:
                     # 将子摘要与 commit 信息关联起来
                     diff_summaries_list.append(
@@ -124,8 +127,9 @@ def main_flow(args: argparse.Namespace):
     # 5. (可选) AI 分析
     ai_summary = None
     if not args.no_ai:
-        ai_summary = ai_summarizer.get_ai_summary(
-            cfg, text_report, ai_diff_summary, previous_summary
+        # (V2.4 重构: 使用 ai_service 实例的方法)
+        ai_summary = ai_service.get_ai_summary(
+            text_report, ai_diff_summary, previous_summary
         )
 
     # 6. 生成最终 HTML 报告
@@ -151,7 +155,8 @@ def main_flow(args: argparse.Namespace):
 
             # 7.2. 触发“记忆蒸馏”，重写“压缩记忆”
             # (这个函数会读取 project_log.jsonl 并生成 project_memory.md)
-            new_compressed_memory = ai_summarizer.distill_project_memory(cfg)
+            # (V2.4 重构: 使用 ai_service 实例的方法)
+            new_compressed_memory = ai_service.distill_project_memory()
 
             if new_compressed_memory:
                 with open(cfg.PROJECT_MEMORY_FILE, "w", encoding="utf-8") as f:
@@ -170,11 +175,11 @@ def main_flow(args: argparse.Namespace):
     public_article = None
     if ai_summary and previous_summary and not args.no_ai:
         logger.info("🤖 启动 V2.3 风格转换...")
-        public_article = ai_summarizer.generate_public_article(
-            cfg,
+        # (V2.4 重构: 使用 ai_service 实例的方法)
+        public_article = ai_service.generate_public_article(
             ai_summary,  # 传入今天刚生成的技术摘要
             previous_summary,  # 传入我们刚读到的项目历史
-            project_readme  # 传入项目元数据（README 内容）
+            project_readme,  # 传入项目元数据（README 内容）
         )
 
         if public_article:

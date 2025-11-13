@@ -230,6 +230,4 @@ project_memory.md
 # 忽略公共文章文件，但保留 README.md
 PublicArticle_*.md
 !README.md
-# --- (修改) V2.2 END ---
 # --- (修改) V2.3 END ---
->>>>>>> Feature/Publisher
