@@ -12,6 +12,14 @@ class GitReportConfig:
     TIME_RANGE: str = "1 day ago"
     GIT_LOG_FORMAT = 'git log --since="{time_range}" --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'
     GIT_STATS_FORMAT = 'git log --since="{time_range}" --numstat --pretty=format:""'
+
+    # --- (新增) V2.0 START ---
+    # 用于获取单个 commit diff 的命令。
+    # --pretty="" 确保我们只获取 diff 内容，没有 commit message 等额外信息
+    # --no-color 移除 ANSI 颜色代码
+    GIT_COMMIT_DIFF_FORMAT = 'git show {commit_hash} --pretty="" --no-color'
+    # --- (新增) V2.0 END ---
+
     OUTPUT_FILENAME_PREFIX = "GitReport"
 
     # =================================================================

@@ -55,10 +55,46 @@ def main_flow(args: argparse.Namespace):
     # 4. 生成报告（AI 摘要需要文本报告）
     text_report = report_builder.generate_text_report(commits, stats)
 
+    # --- (修改) V2.0 START: "Map" 阶段 ---
+    ai_diff_summary = None
+    if not args.no_ai:
+        logger.info("🤖 正在启动 AI 'Map' 阶段 (逐条总结 Diff)...")
+        diff_summaries_list = []
+
+        # 遍历我们从 parse_git_log 得到的 commits 列表
+        for i, commit in enumerate(commits):
+            # (重要) 跳过合并提交，它们的 diff 复杂且意义不大
+            if commit.is_merge_commit:  #
+                logger.info(f"    (跳过 Merge Commit: {commit.hash})")
+                continue
+
+            # (调用我们在 git_utils.py 中添加的新函数)
+            diff_content = git_utils.get_commit_diff(cfg, commit.hash)  #
+
+            if diff_content:
+                # (调用我们在 ai_summarizer.py 中添加的新函数)
+                single_summary = ai_summarizer.get_single_diff_summary(
+                    cfg, diff_content
+                )
+                if single_summary:
+                    # 将子摘要与 commit 信息关联起来
+                    diff_summaries_list.append(
+                        f"* {commit.hash} ({commit.author}): {single_summary}"
+                    )
+            else:
+                logger.warning(f"    (未能获取 {commit.hash} 的 Diff 内容)")
+
+        if diff_summaries_list:
+            ai_diff_summary = "\n".join(diff_summaries_list)
+            logger.info("✅ AI 'Map' 阶段完成")
+        else:
+            logger.info("ℹ️ AI 'Map' 阶段未生成任何 Diff 摘要")
+    # --- (修改) V2.0 END ---
+
     # 5. (可选) AI 分析
     ai_summary = None
     if not args.no_ai:
-        ai_summary = ai_summarizer.get_ai_summary(cfg, text_report)
+        ai_summary = ai_summarizer.get_ai_summary(cfg, text_report, ai_diff_summary)
 
     # 6. 生成最终 HTML 报告
     html_content = report_builder.generate_html_report(commits, stats, ai_summary)

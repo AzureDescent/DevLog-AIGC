@@ -35,6 +35,16 @@ def run_git_command(cmd: str, context: str = "执行Git命令") -> Optional[str]
         return None
 
 
+# --- (新增) V2.0 START ---
+def get_commit_diff(config: GitReportConfig, commit_hash: str) -> Optional[str]:
+    """获取单个commit的diff内容"""
+    cmd = config.GIT_COMMIT_DIFF_FORMAT.format(commit_hash=commit_hash)
+    return run_git_command(cmd, f"获取 {commit_hash} 的Diff")
+
+
+# --- (新增) V2.0 END ---
+
+
 def is_git_repository() -> bool:
     """检查当前目录是否为Git仓库"""
     try:
