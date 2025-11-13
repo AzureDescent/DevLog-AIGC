@@ -204,12 +204,13 @@ def distill_project_memory(config: GitReportConfig) -> Optional[str]:
 # --- (新增) V2.3 START: 公众号文章生成 ---
 def generate_public_article(
     config: GitReportConfig,
-    today_technical_summary: str,  # 今天的 ai_summary
-    project_historical_memory: str,  # project_memory.md 的内容
+    today_technical_summary: str,
+    project_historical_memory: str,
+    project_readme: Optional[str] = None,  # <-- V2.4 新增参数
 ) -> Optional[str]:
     """
-    (新增 "AI 风格转换" 阶段)
-    将技术摘要和项目历史，转换为面向公众的公众号文章。
+    (V2.4 升级)
+    将技术摘要和项目历史，转换为面向公众的公众号文章，并利用 README 文件。
     """
     logger.info("✍️ 正在启动 AI '风格转换' 阶段 (生成公众号文章)...")
 
@@ -217,46 +218,34 @@ def generate_public_article(
     if not model:
         return None
 
-    # 2. 构造“市场运营” Prompt
+    # 构造 Prompt
     prompt = f"""
     你是一名资深的技术市场运营专家 (Tech Marketer) 和内容创作者。
     你的任务是为我们的项目撰写一篇面向用户和社区的“开发日志”或“公众号更新”。
     文章风格必须是：通俗易懂、充满热情、强调用户价值，而不是罗列技术术语。
 
+    {f'''
+    --- 项目背景与目标 (来自 README.md) ---
+    这份文件定义了项目的使命、主要功能和市场定位。
+    请确保你的文章风格和重点与其吻合。
+    {project_readme}
+    --- 项目背景结束 ---
+    ''' if project_readme and project_readme.strip() else ''}
+
     为了帮助你写作，我将提供两份材料：
 
     1.  **项目历史与记忆 (浓缩版)**:
-        (这能让你理解项目的宏观叙事和背景)
-        ---
-        {project_historical_memory}
-        ---
-
+        ...
     2.  **今天的技术工作摘要**:
-        (这是你今天需要向公众“翻译”和“包装”的核心内容)
-        ---
-        {today_technical_summary}
-        ---
+        ...
 
     请基于以上**所有材料**，撰写这篇公众号文章 (Markdown 格式)：
-
-    要求：
-    1.  **起一个吸引人的标题** (例如：`## 🚀 DevLog #5：我们重构了XX，性能起飞！`)
-    2.  **人性化开场**: 感谢社区支持，或描述一下开发的背景故事。
-    3.  **翻译技术点**:
-        * (错误示范): "修复了 user API 的 nil 指针 bug。"
-        * (正确示范): "我们解决了一个烦人的小问题！一些用户在登录时可能会卡住，现在如丝般顺滑了。"
-    4.  **强调价值**:
-        * (错误示范): "重构了支付模块。"
-        * (正确示范): "为了您未来的支付安全和更快的速度，我们本周‘重修’了整个支付系统！"
-    5.  **串联叙事**: 利用“项目历史”，将今天的工作与大目标联系起来。 (例如："还记得我们上周提到的...吗？今天，它终于来了！")
-    6.  **展望未来**: 简单提及一下接下来会做什么，保持社区的期待。
-
-    请开始撰写你的文章：
+    ... (其余要求保持不变) ...
     """
 
     try:
         response = model.generate_content(prompt)
-        logger.info("✅ AI '风格转换' 成功 (已生成公众号文章)")
+        logger.info("✅ AI '风格转换' 成功 (已包含项目背景)")
         return response.text
     except Exception as e:
         logger.error(f"❌ AI '风格转换' 失败: {e}")

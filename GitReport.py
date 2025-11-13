@@ -38,6 +38,18 @@ def main_flow(args: argparse.Namespace):
     logger.info(f"🚀 正在生成Git工作报告... 时间范围: {cfg.TIME_RANGE}")
     print("=" * 50)
 
+    # 1.1. 读取 README 文件，作为项目元数据
+    project_readme = None
+    try:
+        # 假设 README.md 在脚本运行的根目录
+        with open("README.md", "r", encoding="utf-8") as f:
+            project_readme = f.read()
+        logger.info("✅ 成功加载 README.md 作为项目元数据")
+    except FileNotFoundError:
+        logger.warning("❌ 未找到 README.md 文件，跳过加载项目元数据。")
+    except Exception as e:
+        logger.error(f"❌ 读取 README.md 失败: {e}")
+
     # --- (修改) V2.2 START: 读取“压缩记忆” ---
     previous_summary = None  # 这现在是 V2.1 中的 "previous_summary"
     if not args.no_ai:
@@ -162,6 +174,7 @@ def main_flow(args: argparse.Namespace):
             cfg,
             ai_summary,  # 传入今天刚生成的技术摘要
             previous_summary,  # 传入我们刚读到的项目历史
+            project_readme  # 传入项目元数据（README 内容）
         )
 
         if public_article:
