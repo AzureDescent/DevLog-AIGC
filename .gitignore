@@ -225,4 +225,6 @@ __marimo__/
 # 忽略 AI 记忆和日志文件
 *.jsonl
 project_memory.md
+PublicArticle_*.md
+!README.md
 # --- (修改) V2.2 END ---
