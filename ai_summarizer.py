@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # --- (新增) V2.0 START ---
 # 辅助函数，用于配置 GenAI，避免代码重复
-def _configure_genai(config: GitReportConfig) -> Optional[genai.GenerativeModel]:
+def _configure_genai(config: GitReportConfig) -> Optional[genai.GenerativeModel]:  # type: ignore
     if not config.AI_API_KEY:
         logger.warning("❌ 未配置 GOOGLE_API_KEY 环境变量")
         return None

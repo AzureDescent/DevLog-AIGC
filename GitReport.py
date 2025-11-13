@@ -17,7 +17,7 @@ import git_utils
 import report_builder
 import ai_summarizer
 import email_sender
-import os
+import os  # noqa
 import json
 from datetime import datetime
 
