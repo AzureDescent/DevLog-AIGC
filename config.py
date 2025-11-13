@@ -19,6 +19,6 @@ class GitReportConfig:
 
     # 邮件(SMTP)配置
     SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.example.com")
-    SMTP_PORT: int = 587
+    SMTP_PORT: int = 465
     SMTP_USER: str = os.getenv("SMTP_USER", "your-email@example.com")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASS", "")
