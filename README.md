@@ -1,4 +1,4 @@
-# Git-Report-AI (AI驱动的Git工作日报)
+# DevLog-AIGC (AI驱动的Git工作日报)
 
 本项目是一个基于 Python 和 Google Gemini AI 的 Git 工作日报自动化工具。
 
@@ -19,8 +19,8 @@
 
 ```bash
 # (替换为你的 GitHub 仓库地址)
-git clone https://github.com/YourUsername/Git-Report-AI.git
-cd Git-Report-AI
+git clone https://github.com/YourUsername/DevLog-AIGC.git
+cd DevLog-AIGC
 ```
 
 **2. (推荐) 创建虚拟环境**
