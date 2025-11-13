@@ -3,7 +3,7 @@ import logging
 import sys
 from typing import Optional
 from config import GitReportConfig
-import os  # --- (V3.0) 新增: 导入 os ---
+import os
 
 try:
     import google.generativeai as genai
@@ -53,43 +53,52 @@ class AIService:
             logger.error(f"❌ GenAI 配置失败: {e}")
             return None
 
+    # --- (V3.3) 新增: Prompt 加载器 ---
+    def _load_prompt_template(self, template_name: str) -> Optional[str]:
+        """(V3.3) 辅助函数：从 prompts/ 目录加载模板"""
+        prompt_path = os.path.join(
+            self.config.SCRIPT_BASE_PATH, "prompts", template_name
+        )
+        try:
+            with open(prompt_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.error(f"❌ (V3.3) Prompt 模板文件未找到: {prompt_path}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ (V3.3) 加载 Prompt 模板失败 ({prompt_path}): {e}")
+            return None
+
+    # --- (V3.3) 结束 ---
+
     def get_single_diff_summary(self, diff_content: str) -> Optional[str]:
         """
         (V2.4 重构: 转换为方法)
+        (V3.3 修改: 从 prompts/diff_map.txt 加载 Prompt)
         (新增 "Map" 阶段)
         使用 AI 单独总结一个 diff 的核心逻辑变更。
         """
-        # (V2.4 重构: 不再调用 _configure_genai，而是检查 self.model)
         if not self.model:
+            return None
+
+        # (V3.3) 加载 Prompt
+        prompt_template = self._load_prompt_template("diff_map.txt")
+        if not prompt_template:
             return None
 
         logger.info("🤖 正在调用 AI 总结单个 Diff...")
 
-        # (方法一的补充：在发送前再次过滤超大 diff)
-        # (gemini-2.5-flash 的上下文约为 1M tokens,
-        # 但我们应设置一个更合理的业务上限，例如 100k 字符)
         if len(diff_content) > 100000:
             logger.warning(
                 f"⚠️ Diff 内容过长 ({len(diff_content)} chars)，跳过 AI 总结。"
             )
             return "(Diff 内容过长，已跳过总结)"
 
-        prompt = f"""
-        你是一名资深的程序员，擅长 Code Review。
-        以下是一个 Git Commit 的 diff 内容。请用一句话（不要超过50个字）总结这个 diff 的核心代码逻辑变更。
-        重点关注 *逻辑* 变更，忽略纯粹的格式化、重命名或依赖文件更新 (如 package-lock.json)。
-
-        --- Diff 内容开始 ---
-        {diff_content}
-        --- Diff 内容结束 ---
-
-        核心逻辑总结：
-        """
+        # (V3.3) 格式化 Prompt
+        prompt = prompt_template.format(diff_content=diff_content)
 
         try:
-            # (V2.4 重构: 使用 self.model)
             response = self.model.generate_content(prompt)
-            # 清理总结，确保是单行
             summary = response.text.strip().replace("\n", " ")
             logger.info(f"✅ 单个 Diff 总结成功: {summary}")
             return summary
@@ -104,51 +113,46 @@ class AIService:
         previous_summary: Optional[str] = None,
     ) -> Optional[str]:
         """
-        (V2.4 重构: 转换为方法)
-        (修改 "Reduce" 阶段)
+        (V3.3 修改: 从 prompts/summary_reduce.txt 加载 Prompt)
         使用 AI 生成最终的工作摘要。
         """
         logger.info("🤖 正在调用 AI 生成*最终*摘要...")
 
-        # (V2.4 重构: 不再调用 _configure_genai，而是检查 self.model)
         if not self.model:
             return None
 
-        # (修改) V2.1: 更新 Prompt 以包含 previous_summary
-        prompt = f"""
-        你是一名资深的技术团队主管，你正在撰写一份连续的工作日报。
+        # (V3.3) 加载 Prompt
+        prompt_template = self._load_prompt_template("summary_reduce.txt")
+        if not prompt_template:
+            return None
 
-        {f'''
+        # (V3.3) 准备用于模板的动态内容块
+        history_block = (
+            f"""
         --- 这是你昨天的工作摘要（历史上下文） ---
         {previous_summary}
         --- 历史上下文结束 ---
-        ''' if previous_summary and previous_summary.strip() else ''}
+        """
+            if previous_summary and previous_summary.strip()
+            else ""
+        )
 
-        现在，这是今天团队的 Git 提交日志、代码变更统计，以及（可选的）AI 对每条代码变更的逐条总结：
-
-        --- 今天的原始数据（Git 日志） ---
-        {text_report}
-        --- 原始数据结束 ---
-
-        {f'''
+        diff_block = (
+            f"""
         --- 今天 AI 生成的逐条代码变更总结 (Diffs) ---
         {diff_summaries}
         --- 代码变更总结结束 ---
-        ''' if diff_summaries and diff_summaries.strip() else ''}
-
-        请你基于**历史上下文**（如果提供了）和**今天的全部新数据**，撰写一份结构清晰、重点突出、人类可读的*今日*工作日报摘要。
-        要求：
-        1.  **体现连续性**: 在"总体概览"部分，请*务必*将今天的工作与昨天的摘要（如果提供了）联系起来。
-            例如："在昨天完成了XX模块重构的基础上，今天团队..."
-            或："今天的工作主要在修复昨天引入的XX问题..."
-            或："延续昨天的开发，今天XX功能已完成..."
-        2.  **按模块/功能/作者总结**: 合并归类今天的工作。优先使用 'AI 逐条总结' 来理解真实变更。
-        3.  **高亮亮点**: 指出今天任何重大的功能上线、关键修复或需要注意的变更。
-        4.  **输出格式**: 使用 Markdown 格式化，使其易于阅读。
         """
+            if diff_summaries and diff_summaries.strip()
+            else ""
+        )
+
+        # (V3.3) 格式化 Prompt
+        prompt = prompt_template.format(
+            history_block=history_block, text_report=text_report, diff_block=diff_block
+        )
 
         try:
-            # (V2.4 重构: 使用 self.model)
             response = self.model.generate_content(prompt)
             logger.info("✅ AI 最终摘要生成成功 (已包含历史上下文)")
             return response.text
@@ -160,23 +164,20 @@ class AIService:
     def distill_project_memory(self) -> Optional[str]:
         """
         (V3.1 修改)
+        (V3.3 修改: 从 prompts/memory_distill.txt 加载 Prompt)
         (记忆蒸馏) 读取 *所有* 的历史日志，生成一个浓缩的、有权重的记忆文件。
         """
         logger.info("🧠 正在启动 AI '记忆蒸馏' 阶段...")
 
-        # --- (V3.1) 核心修改: 使用 PROJECT_DATA_PATH 组合路径 ---
         log_file_path = os.path.join(
             self.config.PROJECT_DATA_PATH, self.config.PROJECT_LOG_FILE
         )
 
-        # 1. 读取“地基”日志
         try:
             with open(log_file_path, "r", encoding="utf-8") as f:
                 full_log = f.read()
         except FileNotFoundError:
-            logger.info(
-                f"ℹ️ 未找到项目日志 ({log_file_path})，将创建新记忆。"
-            )
+            logger.info(f"ℹ️ 未找到项目日志 ({log_file_path})，将创建新记忆。")
             return None
         except Exception as e:
             logger.error(f"❌ 读取项目日志失败 ({log_file_path}): {e}")
@@ -189,37 +190,13 @@ class AIService:
         if not self.model:
             return None
 
-        # 2. 构造蒸馏 Prompt
-        prompt = f"""
-        你是一名项目历史学家和信息压缩专家。
-        以下是本软件项目 *从开始到今天* 所有的 AI 生成的每日工作摘要日志 (JSONL 格式)。
-        每条日志包含：日期(date), 新增行数(additions), 删除行数(deletions), 和当日AI摘要(summary)。
+        # (V3.3) 加载 Prompt
+        prompt_template = self._load_prompt_template("memory_distill.txt")
+        if not prompt_template:
+            return None
 
-        --- 完整日志开始 ---
-        {full_log}
-        --- 完整日志结束 ---
-
-        你的任务是：阅读 *所有* 日志，生成一份单一的、压缩后的 "项目连续记忆" (Markdown 格式)。
-        这份“记忆”的*唯一*目标是为明天的 AI 提供最高效、最节省上下文的历史背景。
-
-        请严格遵守以下 "加权压缩" 规则：
-
-        1.  **时间权重 (Recency)**:
-            * **最近的 3-5 天**: 必须保留 *完整* 的 `summary` 细节，这是最高优先级的。
-            * **过去 1-2 周**: 压缩相似的工作（例如 "修复了A, 修复了B" -> "完成了多项bug修复"），但要保留关键的功能点。
-            * **更早 (2周前)**: 必须 *极度* 压缩。只保留里程碑式的成就（例如 "完成了V1.0重构", "上线了支付系统"）。
-
-        2.  **变更权重 (Importance)**:
-            * 使用 `additions` 和 `deletions` 作为“重要性”的参考。
-            * 一个 `additions: 1000, deletions: 500` 的条目（即使在 1 个月前）可能是一个需要保留的“里程碑”。
-            * 一个 `additions: 5, deletions: 5` 的条目（例如 "修复拼写错误"）如果超过 1 周，应 *立即丢弃*，不要在记忆中提及。
-
-        3.  **连续性 (Continuity)**:
-            * 你的输出必须是一个连贯的叙事。使用 Markdown 标题（例如 `## 近期进展` 和 `### 历史里程碑`）来组织结构。
-            * 不要只是罗列，要体现“演进”。例如："在(里程碑)的基础上，团队近期专注于(近期进展)..."
-
-        请立即开始生成这份压缩后的 "项目连续记忆" (project_memory.md)：
-        """
+        # (V3.3) 格式化 Prompt
+        prompt = prompt_template.format(full_log=full_log)
 
         try:
             response = self.model.generate_content(prompt)
@@ -236,63 +213,40 @@ class AIService:
         project_readme: Optional[str] = None,
     ) -> Optional[str]:
         """
-        (V2.4 重构: 转换为方法)
-        (V2.4 升级)
+        (V3.3 修改: 从 prompts/public_article.txt 加载 Prompt)
         将技术摘要和项目历史，转换为面向公众的公众号文章，并利用 README 文件。
         """
         logger.info("✍️ 正在启动 AI '风格转换' 阶段 (生成公众号文章)...")
 
-        # (V2.4 重构: 不再调用 _configure_genai，而是检查 self.model)
         if not self.model:
             return None
 
-        # 构造 Prompt
-        prompt = f"""
-        你是一名资深的技术市场运营专家 (Tech Marketer) 和内容创作者。
-        你的任务是为我们的项目撰写一篇面向用户和社区的“开发日志”或“公众号更新”。
-        文章风格必须是：通俗易懂、充满热情、强调用户价值，而不是罗列技术术语。
+        # (V3.3) 加载 Prompt
+        prompt_template = self._load_prompt_template("public_article.txt")
+        if not prompt_template:
+            return None
 
-        为了帮助你写作，我将提供两份材料：
-
-        1.  **项目历史与记忆 (浓缩版)**:
-            (这能让你理解项目的宏观叙事和背景)
-            ---
-            {project_historical_memory}
-            ---
-
-        2.  **今天的技术工作摘要**:
-            (这是你今天需要向公众“翻译”和“包装”的核心内容)
-            ---
-            {today_technical_summary}
-            ---
-
-        {f'''
+        # (V3.3) 准备用于模板的动态内容块
+        readme_block = (
+            f"""
         3.  **项目 README (使命与愿景)**:
             (这能让你理解项目的核心价值和目标用户)
             ---
             {project_readme}
             ---
-        ''' if project_readme else ''}
-
-        请基于以上**所有材料**，撰写这篇公众号文章 (Markdown 格式)：
-
-        要求：
-        1.  **起一个吸引人的标题** (例如：`## 🚀 DevLog #5：我们重构了XX，性能起飞！`)
-        2.  **人性化开场**: 感谢社区支持，或描述一下开发的背景故事。
-        3.  **翻译技术点**:
-            * (错误示范): "修复了 user API 的 nil 指针 bug。"
-            * (正确示范): "我们解决了一个烦人的小问题！一些用户在登录时可能会卡住，现在如丝般顺滑了。"
-        4.  **强调价值**:
-            * (错误示范): "重构了支付模块。"
-            * (正确示范): "为了您未来的支付安全和更快的速度，我们本周‘重修’了整个支付系统！"
-        5.  **串联叙事**: 利用“项目历史”，将今天的工作与大目标联系起来。 (例如："还记得我们上周提到的...吗？今天，它终于来了！")
-        6.  **展望未来**: 简单提及一下接下来会做什么，保持社区的期待。
-
-        请开始撰写你的文章：
         """
+            if project_readme
+            else ""
+        )
+
+        # (V3.3) 格式化 Prompt
+        prompt = prompt_template.format(
+            project_historical_memory=project_historical_memory,
+            today_technical_summary=today_technical_summary,
+            readme_block=readme_block,
+        )
 
         try:
-            # (V2.4 重构: 使用 self.model)
             response = self.model.generate_content(prompt)
             logger.info("✅ AI '风格转换' 成功 (已包含项目背景)")
             return response.text

@@ -1,0 +1,9 @@
+你是一名资深的程序员，擅长 Code Review。
+以下是一个 Git Commit 的 diff 内容。请用一句话（不要超过50个字）总结这个 diff 的核心代码逻辑变更。
+重点关注 *逻辑* 变更，忽略纯粹的格式化、重命名或依赖文件更新 (如 package-lock.json)。
+
+--- Diff 内容开始 ---
+{diff_content}
+--- Diff 内容结束 ---
+
+核心逻辑总结：

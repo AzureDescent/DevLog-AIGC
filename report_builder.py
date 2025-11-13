@@ -5,7 +5,9 @@ from typing import List, Dict, Any, Optional
 from models import GitCommit
 import markdown
 import os
-from config import GitReportConfig
+
+# (V3.3) 导入 SCRIPT_BASE_PATH 用于定位模板
+from config import GitReportConfig, SCRIPT_BASE_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -51,242 +53,20 @@ def generate_text_report(commits: List[GitCommit], stats: Dict[str, Any]) -> str
 
 
 def get_css_styles() -> str:
-    """返回CSS样式"""
-    return """
-        body {
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        .header {
-            text-align: center;
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-
-        /* --- V1.1 START: 增加 AI 摘要区域样式 --- */
-        .ai-summary {
-            background: #fdfdfd;
-            border: 1px solid #eee;
-            border-left: 5px solid #667eea;
-            padding: 20px 25px;
-            margin-bottom: 30px;
-            border-radius: 8px;
-            font-family: 'Arial', sans-serif; /* AI 摘要使用更易读的非等宽字体 */
-            line-height: 1.6;
-            color: #333;
-        }
-        /* --- V1.1 END --- */
-
-        .commit {
-            padding: 15px;
-            margin: 10px 0;
-            border-left: 5px solid #667eea;
-            background: #f8f9fa;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-        .commit:hover {
-            transform: translateX(5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-        .hash {
-            color: #e74c3c;
-            font-weight: bold;
-            font-family: monospace;
-        }
-        .message {
-            color: #2c3e50;
-            font-size: 1.1em;
-            margin: 5px 0;
-        }
-        .time {
-            color: #7f8c8d;
-            font-size: 0.9em;
-        }
-        .author {
-            color: #3498db;
-            font-weight: bold;
-        }
-        .branch {
-            color: #27ae60;
-            font-style: italic;
-        }
-        .graph {
-            color: #95a5a6;
-            font-family: monospace;
-            margin-right: 10px;
-        }
-        .stats {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 25px 0;
-            text-align: center;
-        }
-        .commit-number {
-            background: #e74c3c;
-            color: white;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 10px;
-            font-weight: bold;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: #7f8c8d;
-            font-size: 1.2em;
-        }
-        .author-section {
-            margin-bottom: 30px;
-        }
-        .author-header {
-            background: #ecf0f1;
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            font-weight: bold;
-            color: #2c3e50;
-        }
-        /* 新增文件变更列表样式 */
-        .file-list {
-            text-align: left;
-            margin: 20px 0;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background: #fff;
-        }
-        .file-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.95em;
-        }
-        .file-table th, .file-table td {
-            padding: 8px 12px;
-            border-bottom: 1px solid #eee;
-            text-align: left;
-        }
-        .file-table th {
-            background: #f1f1f1;
-            font-weight: bold;
-            color: #333;
-        }
-        .file-add {
-            color: #27ae60; /* 绿色 */
-            font-weight: bold;
-        }
-        .file-del {
-            color: #e74c3c; /* 红色 */
-            font-weight: bold;
-        }
-        /* --- V1.3 START: AI 摘要 (Markdown 渲染) 样式 --- */
-        .ai-summary .markdown-body {
-            /* 保持和原先 pre 标签一致的字体，但更易读 */
-            font-family: 'Arial', sans-serif;
-            line-height: 1.7;
-            color: #333;
-        }
-
-        .ai-summary .markdown-body h1,
-        .ai-summary .markdown-body h2,
-        .ai-summary .markdown-body h3,
-        .ai-summary .markdown-body h4 {
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace; /* 标题用回等宽字体，保持风格 */
-            color: #2c3e50;
-            border-bottom: 2px solid #f0f0f0;
-            padding-bottom: 5px;
-            margin-top: 25px;
-            margin-bottom: 15px;
-        }
-
-        .ai-summary .markdown-body p {
-            margin-bottom: 15px;
-        }
-
-        .ai-summary .markdown-body ul,
-        .ai-summary .markdown-body ol {
-            padding-left: 30px;
-            margin-bottom: 15px;
-        }
-
-        .ai-summary .markdown-body li {
-            margin-bottom: 8px;
-        }
-
-        /* 重点：代码块 (```code```) 样式 */
-        .ai-summary .markdown-body pre {
-            background: #f4f7f9; /* 浅灰色背景 */
-            border: 1px solid #e0e6ed;
-            border-radius: 6px;
-            padding: 15px;
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            overflow-x: auto; /* 水平滚动 */
-            font-size: 0.95em;
-        }
-
-        /* 行内代码 (`code`) 样式 */
-        .ai-summary .markdown-body code {
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            background: #fceceb; /* 淡红色背景 */
-            color: #c7254e; /* 暗红色 */
-            padding: 2px 5px;
-            border-radius: 4px;
-            font-size: 0.9em;
-        }
-
-        .ai-summary .markdown-body pre code {
-            /* 嵌套在 pre 里的 code 样式重置 */
-            background: none;
-            color: inherit;
-            padding: 0;
-        }
-
-        .ai-summary .markdown-body blockquote {
-            border-left: 5px solid #bdc3c7; /* 灰色引用条 */
-            padding-left: 15px;
-            margin-left: 0;
-            color: #555;
-            font-style: italic;
-        }
-
-        .ai-summary .markdown-body table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 15px;
-            border: 1px solid #ddd;
-        }
-
-        .ai-summary .markdown-body th,
-        .ai-summary .markdown-body td {
-            border: 1px solid #ddd;
-            padding: 10px;
-            text-align: left;
-        }
-
-        .ai-summary .markdown-body th {
-            background: #f9f9f9;
-            font-weight: bold;
-        }
-        /* --- V1.3 END --- */
-        """
+    """
+    (V3.3 修改)
+    返回CSS样式 - 从 templates/styles.css 文件读取
+    """
+    css_path = os.path.join(SCRIPT_BASE_PATH, "templates", "styles.css")
+    try:
+        with open(css_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.error(f"❌ (V3.3) CSS 模板文件未找到: {css_path}")
+        return "/* CSS 模板文件未找到 */"
+    except Exception as e:
+        logger.error(f"❌ (V3.3) 加载 CSS 模板失败: {e}")
+        return f"/* 加载 CSS 模板失败: {e} */"
 
 
 def generate_html_header() -> str:
@@ -423,25 +203,24 @@ def generate_html_report(
     stats: Dict[str, Any],
     ai_summary: Optional[str],
 ) -> str:
-    """生成HTML格式的可视化报告"""
-    html_template = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>{title}</title>
-        <meta charset="utf-8">
-        <style>{css}</style>
-    </head>
-    <body>
-        <div class="container">
-            {header}
-            {ai_summary_section}
-            {stats_section}
-            {commits_section}
-        </div>
-    </body>
-    </html>
     """
+    (V3.3 修改)
+    生成HTML格式的可视化报告 - 从 templates/report.html.tpl 加载骨架
+    """
+
+    # (V3.3) 从文件加载 HTML 模板
+    tpl_path = os.path.join(SCRIPT_BASE_PATH, "templates", "report.html.tpl")
+    try:
+        with open(tpl_path, "r", encoding="utf-8") as f:
+            html_template = f.read()
+    except FileNotFoundError:
+        logger.error(f"❌ (V3.3) HTML 模板文件未找到: {tpl_path}")
+        return f"<h1>错误：HTML 模板文件未找到 ({tpl_path})</h1>"
+    except Exception as e:
+        logger.error(f"❌ (V3.3) 加载 HTML 模板失败: {e}")
+        return f"<h1>错误：加载 HTML 模板失败: {e}</h1>"
+
+    # (V3.3) 注入内容到模板
     return html_template.format(
         title=f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}",
         css=get_css_styles(),
