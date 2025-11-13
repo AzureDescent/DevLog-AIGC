@@ -29,6 +29,14 @@ class GitReportConfig:
     # 2. 要分析的目标 Git 仓库路径 (默认: CWD, 将被 argparse 覆盖)
     REPO_PATH: str = "."
 
+    # --- (新增) V3.1: 隔离的数据路径 ---
+    # 这是所有项目数据存储的根目录名 (相对于 SCRIPT_BASE_PATH)
+    DATA_ROOT_DIR_NAME: str = "data"
+    # 这是 *当前* 项目的专属数据路径 (将在 GitReport.py 中被设置)
+    # 例如: /path/to/script/data/Project-A
+    PROJECT_DATA_PATH: str = ""
+    # --- (V3.1 结束) ---
+
     # 原始配置
     TIME_RANGE: str = "1 day ago"
     GIT_LOG_FORMAT = 'git log --since="{time_range}" --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'

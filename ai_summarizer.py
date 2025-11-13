@@ -159,15 +159,14 @@ class AIService:
 
     def distill_project_memory(self) -> Optional[str]:
         """
-        (V2.4 重构: 转换为方法)
-        (新增 "记忆蒸馏" 阶段)
-        读取 *所有* 的历史日志，生成一个浓缩的、有权重的记忆文件。
+        (V3.1 修改)
+        (记忆蒸馏) 读取 *所有* 的历史日志，生成一个浓缩的、有权重的记忆文件。
         """
         logger.info("🧠 正在启动 AI '记忆蒸馏' 阶段...")
 
-        # --- (V3.0) 核心修改: 使用 SCRIPT_BASE_PATH 组合路径 ---
+        # --- (V3.1) 核心修改: 使用 PROJECT_DATA_PATH 组合路径 ---
         log_file_path = os.path.join(
-            self.config.SCRIPT_BASE_PATH, self.config.PROJECT_LOG_FILE
+            self.config.PROJECT_DATA_PATH, self.config.PROJECT_LOG_FILE
         )
 
         # 1. 读取“地基”日志
@@ -175,8 +174,10 @@ class AIService:
             with open(log_file_path, "r", encoding="utf-8") as f:
                 full_log = f.read()
         except FileNotFoundError:
-            logger.info(f"ℹ️ 未找到项目日志 ({log_file_path})，将创建新记忆。")
-            return None  # 没有历史，无需蒸馏
+            logger.info(
+                f"ℹ️ 未找到项目日志 ({log_file_path})，将创建新记忆。"
+            )
+            return None
         except Exception as e:
             logger.error(f"❌ 读取项目日志失败 ({log_file_path}): {e}")
             return None
@@ -185,7 +186,6 @@ class AIService:
             logger.info("ℹ️ 项目日志为空，无需蒸馏。")
             return None
 
-        # (V2.4 重构: 不再调用 _configure_genai，而是检查 self.model)
         if not self.model:
             return None
 
@@ -222,7 +222,6 @@ class AIService:
         """
 
         try:
-            # (V2.4 重构: 使用 self.model)
             response = self.model.generate_content(prompt)
             logger.info("✅ AI '记忆蒸馏' 成功")
             return response.text

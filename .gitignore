@@ -231,3 +231,5 @@ project_memory.md
 PublicArticle_*.md
 !README.md
 # --- (修改) V2.3 END ---
+# 忽略项目专属
+data/

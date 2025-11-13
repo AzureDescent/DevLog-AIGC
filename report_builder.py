@@ -454,21 +454,20 @@ def generate_html_report(
 
 def save_html_report(html_content: str, config: GitReportConfig) -> Optional[str]:
     """
-    (V3.0 修改) 保存HTML报告到文件
-    - 签名改为接收 config 对象
-    - 使用 config.SCRIPT_BASE_PATH 组合完整路径
-    - 返回完整的绝对路径
+    (V3.1 修改) 保存HTML报告到文件
+    - 使用 config.PROJECT_DATA_PATH 组合完整路径
     """
     filename = f"{config.OUTPUT_FILENAME_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
 
-    # --- (V3.0) 核心修改 ---
-    full_path = os.path.join(config.SCRIPT_BASE_PATH, filename)
+    # --- (V3.1) 核心修改 ---
+    # 使用项目专属路径，而不是 V3.0 的脚本根路径
+    full_path = os.path.join(config.PROJECT_DATA_PATH, filename)
 
     try:
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(html_content)
         logger.info(f"✅ HTML报告已保存: {full_path}")
-        return full_path  # --- (V3.0) 返回完整路径 ---
+        return full_path
     except Exception as e:
         logger.error(f"❌ 保存HTML报告失败 ({full_path}): {e}")
         return None
