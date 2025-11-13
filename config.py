@@ -14,6 +14,51 @@ class GitReportConfig:
     GIT_STATS_FORMAT = 'git log --since="{time_range}" --numstat --pretty=format:""'
     OUTPUT_FILENAME_PREFIX = "GitReport"
 
+    # =================================================================
+    # 新增：智能过滤 (Sieving) 模式
+    # 使用 fnmatch 语法 (https://docs.python.org/3/library/fnmatch.html)
+    # =================================================================
+    FILTER_FILE_PATTERNS: list[str] = [
+        # 锁定文件 (通常包含大量自动生成的变更)
+        "*.lock",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "poetry.lock",
+        "pdm.lock",
+        "uv.lock",
+        # 编译和构建产物
+        "dist/*",
+        "build/*",
+        "*.min.js",
+        "*.pyc",
+        "*.so",
+        "*.o",
+        # 缓存和临时文件
+        "__pycache__/*",
+        ".pytest_cache/*",
+        ".mypy_cache/*",
+        ".ruff_cache/*",
+        # IDE 和环境配置 (通常不应提交，但万一提交了)
+        ".vscode/*",
+        ".idea/*",
+        ".env",
+        # 常见的二进制/资源文件 (diff 无意义)
+        "*.png",
+        "*.jpg",
+        "*.jpeg",
+        "*.gif",
+        "*.svg",
+        "*.ico",
+        "*.pdf",
+        "*.woff",
+        "*.woff2",
+        "*.eot",
+        "*.ttf",
+        "*.otf",
+        "*.zip",
+        "*.tar.gz",
+    ]
+
     # AI 配置
     AI_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 

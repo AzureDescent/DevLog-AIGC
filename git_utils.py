@@ -2,6 +2,7 @@
 import subprocess
 import re
 import logging
+import fnmatch
 from typing import Optional, List, Dict, Any
 from config import GitReportConfig
 from models import GitCommit, FileStat
@@ -96,7 +97,7 @@ def parse_git_log(log_output: str) -> List[GitCommit]:
 
 
 def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
-    """获取Git统计信息和文件变更详情"""
+    """获取Git统计信息和文件变更详情（已实现智能过滤）"""  # <-- (注释更新)
     stats = {
         "additions": 0,
         "deletions": 0,
@@ -111,6 +112,12 @@ def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
         return stats
 
     file_changes: Dict[str, FileStat] = {}
+
+    # =================================================================
+    # 新增：获取过滤模式
+    # =================================================================
+    patterns = config.FILTER_FILE_PATTERNS
+
     try:
         for line in output.strip().split("\n"):
             if line.strip():
@@ -119,6 +126,21 @@ def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
                     add = int(parts[0]) if parts[0].isdigit() else 0
                     delete = int(parts[1]) if parts[1].isdigit() else 0
                     filename = parts[2].strip()
+
+                    # =================================================================
+                    # 新增：执行过滤检查
+                    # =================================================================
+                    is_filtered = False
+                    for pattern in patterns:
+                        if fnmatch.fnmatch(filename, pattern):
+                            is_filtered = True
+                            break
+
+                    if is_filtered:
+                        logger.info(f"智能过滤: 已跳过文件 {filename}")
+                        continue  # 跳过此文件，不计入统计
+                    # =================================================================
+
                     stats["additions"] += add
                     stats["deletions"] += delete
                     if filename not in file_changes:
