@@ -221,7 +221,8 @@ __marimo__/
 # 忽略所有PDF文件
 *.pdf
 
-# --- (新增) V2.1 START ---
-# 忽略 AI 摘要缓存文件
-.ai_summary_cache.md
-# --- (新增) V2.1 END ---
+# --- (修改) V2.2 START ---
+# 忽略 AI 记忆和日志文件
+*.jsonl
+project_memory.md
+# --- (修改) V2.2 END ---

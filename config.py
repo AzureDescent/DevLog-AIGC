@@ -13,12 +13,17 @@ class GitReportConfig:
     GIT_LOG_FORMAT = 'git log --since="{time_range}" --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'
     GIT_STATS_FORMAT = 'git log --since="{time_range}" --numstat --pretty=format:""'
 
-    # --- (新增) V2.0 START ---
-    # 用于获取单个 commit diff 的命令。
-    # --pretty="" 确保我们只获取 diff 内容，没有 commit message 等额外信息
-    # --no-color 移除 ANSI 颜色代码
+    # V2.0 START ---
     GIT_COMMIT_DIFF_FORMAT = 'git show {commit_hash} --pretty="" --no-color'
-    # --- (新增) V2.0 END ---
+    # V2.0 END ---
+
+    # --- (修改) V2.2 START ---
+    # 替换 V2.1 的 AI_CACHE_FILENAME
+    # 1. 不可变的“地基”日志
+    PROJECT_LOG_FILE: str = "project_log.jsonl"
+    # 2. AI 使用的压缩“记忆”
+    PROJECT_MEMORY_FILE: str = "project_memory.md"
+    # --- (修改) V2.2 END ---
 
     OUTPUT_FILENAME_PREFIX = "GitReport"
 

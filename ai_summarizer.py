@@ -131,3 +131,71 @@ def get_ai_summary(
     except Exception as e:
         logger.error(f"❌ AI 最终摘要生成失败: {e}")
         return None
+
+
+# --- (新增) V2.2 START: 记忆蒸馏 ---
+def distill_project_memory(config: GitReportConfig) -> Optional[str]:
+    """
+    (新增 "记忆蒸馏" 阶段)
+    读取 *所有* 的历史日志，生成一个浓缩的、有权重的记忆文件。
+    """
+    logger.info("🧠 正在启动 AI '记忆蒸馏' 阶段...")
+
+    # 1. 读取“地基”日志
+    try:
+        with open(config.PROJECT_LOG_FILE, "r", encoding="utf-8") as f:
+            full_log = f.read()
+    except FileNotFoundError:
+        logger.info("ℹ️ 未找到项目日志 (project_log.jsonl)，将创建新记忆。")
+        return None  # 没有历史，无需蒸馏
+
+    if not full_log.strip():
+        logger.info("ℹ️ 项目日志为空，无需蒸馏。")
+        return None
+
+    model = _configure_genai(config)
+    if not model:
+        return None
+
+    # 2. 构造蒸馏 Prompt
+    prompt = f"""
+    你是一名项目历史学家和信息压缩专家。
+    以下是本软件项目 *从开始到今天* 所有的 AI 生成的每日工作摘要日志 (JSONL 格式)。
+    每条日志包含：日期(date), 新增行数(additions), 删除行数(deletions), 和当日AI摘要(summary)。
+
+    --- 完整日志开始 ---
+    {full_log}
+    --- 完整日志结束 ---
+
+    你的任务是：阅读 *所有* 日志，生成一份单一的、压缩后的 "项目连续记忆" (Markdown 格式)。
+    这份“记忆”的*唯一*目标是为明天的 AI 提供最高效、最节省上下文的历史背景。
+
+    请严格遵守以下 "加权压缩" 规则：
+
+    1.  **时间权重 (Recency)**:
+        * **最近的 3-5 天**: 必须保留 *完整* 的 `summary` 细节，这是最高优先级的。
+        * **过去 1-2 周**: 压缩相似的工作（例如 "修复了A, 修复了B" -> "完成了多项bug修复"），但要保留关键的功能点。
+        * **更早 (2周前)**: 必须 *极度* 压缩。只保留里程碑式的成就（例如 "完成了V1.0重构", "上线了支付系统"）。
+
+    2.  **变更权重 (Importance)**:
+        * 使用 `additions` 和 `deletions` 作为“重要性”的参考。
+        * 一个 `additions: 1000, deletions: 500` 的条目（即使在 1 个月前）可能是一个需要保留的“里程碑”。
+        * 一个 `additions: 5, deletions: 5` 的条目（例如 "修复拼写错误"）如果超过 1 周，应 *立即丢弃*，不要在记忆中提及。
+
+    3.  **连续性 (Continuity)**:
+        * 你的输出必须是一个连贯的叙事。使用 Markdown 标题（例如 `## 近期进展` 和 `### 历史里程碑`）来组织结构。
+        * 不要只是罗列，要体现“演进”。例如："在(里程碑)的基础上，团队近期专注于(近期进展)..."
+
+    请立即开始生成这份压缩后的 "项目连续记忆" (project_memory.md)：
+    """
+
+    try:
+        response = model.generate_content(prompt)
+        logger.info("✅ AI '记忆蒸馏' 成功")
+        return response.text
+    except Exception as e:
+        logger.error(f"❌ AI '记忆蒸馏' 失败: {e}")
+        return None
+
+
+# --- (新增) V2.2 END ---
