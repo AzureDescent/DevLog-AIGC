@@ -221,8 +221,13 @@ __marimo__/
 # 忽略所有PDF文件
 *.pdf
 
-# --- (修改) V2.2 START ---
+# --- (修改) V2.3 START ---
 # 忽略 AI 记忆和日志文件
 *.jsonl
 project_memory.md
+
+# 忽略公共文章文件，但保留 README.md
+PublicArticle_*.md
+!README.md
 # --- (修改) V2.2 END ---
+# --- (修改) V2.3 END ---

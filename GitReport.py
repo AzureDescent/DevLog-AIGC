@@ -154,6 +154,31 @@ def main_flow(args: argparse.Namespace):
         logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
         return
 
+    # --- (新增) V2.3 START: 风格转换 ---
+    public_article = None
+    if ai_summary and previous_summary and not args.no_ai:
+        logger.info("🤖 启动 V2.3 风格转换...")
+        public_article = ai_summarizer.generate_public_article(
+            cfg,
+            ai_summary,  # 传入今天刚生成的技术摘要
+            previous_summary,  # 传入我们刚读到的项目历史
+        )
+
+        if public_article:
+            # (推荐) 将公众号文章也保存到文件
+            article_filename = f"PublicArticle_{datetime.now().strftime('%Y%m%d')}.md"
+            try:
+                with open(article_filename, "w", encoding="utf-8") as f:
+                    f.write(public_article)
+                logger.info(f"✅ 公众号文章已保存: {article_filename}")
+                print("\n" + "=" * 50)
+                print(f"📰 AI 生成的公众号文章预览 (已保存至 {article_filename}):")
+                print("=" * 50)
+                print(public_article)
+            except Exception as e:
+                logger.error(f"❌ 保存公众号文章失败: {e}")
+    # --- (新增) V2.3 END ---
+
     # 7. 打印摘要到控制台
     print("\n" + "=" * 50)
     if ai_summary:
