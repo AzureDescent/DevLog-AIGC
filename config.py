@@ -2,29 +2,42 @@
 import os
 from dotenv import load_dotenv
 
-# 优先加载 .env 文件，以便 os.getenv 能立即读取
-load_dotenv()
+
+# --- (新增) V3.0: 定义脚本的基础路径 ---
+# 无论从哪里运行，SCRIPT_BASE_PATH 都是 config.py 所在的目录
+
+SCRIPT_BASE_PATH = os.path.abspath(os.path.dirname(__file__))
+
+# 从脚本的基础路径加载 .env 文件
+# 这使得 .env 文件可以和脚本放在一起，而不是放在目标仓库
+env_path = os.path.join(SCRIPT_BASE_PATH, ".env")
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+    print(f"✅ (V3.0) 已从脚本目录加载 .env: {env_path}")
+else:
+    # 尝试从 CWD 加载（保留旧的兼容性，但 V3.0 推荐 .env 随脚本）
+    load_dotenv()
+    print("⚠️ (V3.0) 未在脚本目录找到 .env，尝试从 CWD 加载。")
 
 
 class GitReportConfig:
     """Git报告配置参数类"""
 
+    # --- (新增) V3.0: 路径配置 ---
+    # 1. 脚本的数据存储根目录
+    SCRIPT_BASE_PATH: str = SCRIPT_BASE_PATH
+    # 2. 要分析的目标 Git 仓库路径 (默认: CWD, 将被 argparse 覆盖)
+    REPO_PATH: str = "."
+
+    # 原始配置
     TIME_RANGE: str = "1 day ago"
     GIT_LOG_FORMAT = 'git log --since="{time_range}" --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'
     GIT_STATS_FORMAT = 'git log --since="{time_range}" --numstat --pretty=format:""'
-
-    # V2.0 START ---
     GIT_COMMIT_DIFF_FORMAT = 'git show {commit_hash} --pretty="" --no-color'
-    # V2.0 END ---
 
-    # --- (修改) V2.2 START ---
-    # 替换 V2.1 的 AI_CACHE_FILENAME
-    # 1. 不可变的“地基”日志
+    # V2.2 记忆文件 (文件名保持相对，我们将用 SCRIPT_BASE_PATH 组合)
     PROJECT_LOG_FILE: str = "project_log.jsonl"
-    # 2. AI 使用的压缩“记忆”
     PROJECT_MEMORY_FILE: str = "project_memory.md"
-    # --- (修改) V2.2 END ---
-
     OUTPUT_FILENAME_PREFIX = "GitReport"
 
     # --- (新增) V2.1 START ---

@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from models import GitCommit
 import markdown
+import os
+from config import GitReportConfig
 
 logger = logging.getLogger(__name__)
 
@@ -450,14 +452,23 @@ def generate_html_report(
     )
 
 
-def save_html_report(html_content: str, filename_prefix: str) -> Optional[str]:
-    """保存HTML报告到文件"""
-    filename = f"{filename_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+def save_html_report(html_content: str, config: GitReportConfig) -> Optional[str]:
+    """
+    (V3.0 修改) 保存HTML报告到文件
+    - 签名改为接收 config 对象
+    - 使用 config.SCRIPT_BASE_PATH 组合完整路径
+    - 返回完整的绝对路径
+    """
+    filename = f"{config.OUTPUT_FILENAME_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+
+    # --- (V3.0) 核心修改 ---
+    full_path = os.path.join(config.SCRIPT_BASE_PATH, filename)
+
     try:
-        with open(filename, "w", encoding="utf-8") as f:
+        with open(full_path, "w", encoding="utf-8") as f:
             f.write(html_content)
-        logger.info(f"✅ HTML报告已保存: {filename}")
-        return filename
+        logger.info(f"✅ HTML报告已保存: {full_path}")
+        return full_path  # --- (V3.0) 返回完整路径 ---
     except Exception as e:
-        logger.error(f"❌ 保存HTML报告失败: {e}")
+        logger.error(f"❌ 保存HTML报告失败 ({full_path}): {e}")
         return None

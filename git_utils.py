@@ -10,10 +10,16 @@ from models import GitCommit, FileStat
 logger = logging.getLogger(__name__)
 
 
-def run_git_command(cmd: str, context: str = "执行Git命令") -> Optional[str]:
-    """统一的Git命令执行函数"""
+def run_git_command(
+    cmd: str, repo_path: str, context: str = "执行Git命令"
+) -> Optional[str]:
+    """
+    (V3.0 修改) 统一的Git命令执行函数
+    - 增加了 repo_path 参数
+    - 使用 cwd 参数在指定仓库路径下执行
+    """
     try:
-        logger.info(f"执行命令: {cmd}")
+        logger.info(f"在 {repo_path} 中执行命令: {cmd}")
         result = subprocess.run(
             cmd,
             shell=True,
@@ -21,6 +27,7 @@ def run_git_command(cmd: str, context: str = "执行Git命令") -> Optional[str]
             text=True,
             encoding="utf-8",
             timeout=30,
+            cwd=repo_path,  # --- (V3.0) 核心修改 ---
         )
         if result.returncode != 0:
             logger.error(f"{context}失败: {result.stderr}")
@@ -39,20 +46,26 @@ def run_git_command(cmd: str, context: str = "执行Git命令") -> Optional[str]
 def get_commit_diff(config: GitReportConfig, commit_hash: str) -> Optional[str]:
     """获取单个commit的diff内容"""
     cmd = config.GIT_COMMIT_DIFF_FORMAT.format(commit_hash=commit_hash)
-    return run_git_command(cmd, f"获取 {commit_hash} 的Diff")
+    # --- (V3.0) 修改: 传入 config.REPO_PATH ---
+    return run_git_command(cmd, config.REPO_PATH, f"获取 {commit_hash} 的Diff")
 
 
 # --- (新增) V2.0 END ---
 
 
-def is_git_repository() -> bool:
-    """检查当前目录是否为Git仓库"""
+def is_git_repository(repo_path: str) -> bool:
+    """
+    (V3.0 修改) 检查指定路径是否为Git仓库
+    - 增加了 repo_path 参数
+    - 使用 cwd 参数
+    """
     try:
         result = subprocess.run(
             "git rev-parse --is-inside-work-tree",
             shell=True,
             capture_output=True,
             text=True,
+            cwd=repo_path,  # --- (V3.0) 核心修改 ---
         )
         return result.returncode == 0
     except Exception:
@@ -62,7 +75,8 @@ def is_git_repository() -> bool:
 def get_git_log(config: GitReportConfig) -> Optional[str]:
     """获取Git提交历史"""
     cmd = config.GIT_LOG_FORMAT.format(time_range=config.TIME_RANGE)
-    return run_git_command(cmd, "获取Git提交历史")
+    # --- (V3.0) 修改: 传入 config.REPO_PATH ---
+    return run_git_command(cmd, config.REPO_PATH, "获取Git提交历史")
 
 
 def parse_single_commit(line: str) -> Optional[GitCommit]:
@@ -107,25 +121,23 @@ def parse_git_log(log_output: str) -> List[GitCommit]:
 
 
 def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
-    """获取Git统计信息和文件变更详情（已实现智能过滤）"""  # <-- (注释更新)
+    """获取Git统计信息和文件变更详情（已实现智能过滤）"""
     stats = {
         "additions": 0,
         "deletions": 0,
         "files_changed": 0,
         "file_stats": [],
     }
+    # --- (V3.0) 修改: 传入 config.REPO_PATH ---
     output = run_git_command(
         config.GIT_STATS_FORMAT.format(time_range=config.TIME_RANGE),
+        config.REPO_PATH,
         "获取Git统计信息",
     )
     if not output:
         return stats
 
     file_changes: Dict[str, FileStat] = {}
-
-    # =================================================================
-    # 新增：获取过滤模式
-    # =================================================================
     patterns = config.FILTER_FILE_PATTERNS
 
     try:
@@ -137,9 +149,6 @@ def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
                     delete = int(parts[1]) if parts[1].isdigit() else 0
                     filename = parts[2].strip()
 
-                    # =================================================================
-                    # 新增：执行过滤检查
-                    # =================================================================
                     is_filtered = False
                     for pattern in patterns:
                         if fnmatch.fnmatch(filename, pattern):
@@ -148,8 +157,7 @@ def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
 
                     if is_filtered:
                         logger.info(f"智能过滤: 已跳过文件 {filename}")
-                        continue  # 跳过此文件，不计入统计
-                    # =================================================================
+                        continue
 
                     stats["additions"] += add
                     stats["deletions"] += delete

@@ -3,6 +3,7 @@ import logging
 import sys
 from typing import Optional
 from config import GitReportConfig
+import os  # --- (V3.0) 新增: 导入 os ---
 
 try:
     import google.generativeai as genai
@@ -30,7 +31,7 @@ class AIService:
         # (V2.4 重构: 在初始化时调用一次，并存储模型实例)
         self.model = self._configure_genai()
         if self.model:
-            logger.info("🤖 AI 服务已成功初始化 (Gemini a 1-Flash)")
+            logger.info("🤖 AI 服务已成功初始化 (Gemini 2.5 Flash)")
         else:
             logger.error("❌ AI 服务初始化失败，后续 AI 功能将不可用。")
 
@@ -164,16 +165,21 @@ class AIService:
         """
         logger.info("🧠 正在启动 AI '记忆蒸馏' 阶段...")
 
+        # --- (V3.0) 核心修改: 使用 SCRIPT_BASE_PATH 组合路径 ---
+        log_file_path = os.path.join(
+            self.config.SCRIPT_BASE_PATH, self.config.PROJECT_LOG_FILE
+        )
+
         # 1. 读取“地基”日志
         try:
-            # (V2.4 重构: 使用 self.config)
-            with open(self.config.PROJECT_LOG_FILE, "r", encoding="utf-8") as f:
+            with open(log_file_path, "r", encoding="utf-8") as f:
                 full_log = f.read()
         except FileNotFoundError:
-            logger.info(
-                f"ℹ️ 未找到项目日志 ({self.config.PROJECT_LOG_FILE})，将创建新记忆。"
-            )
+            logger.info(f"ℹ️ 未找到项目日志 ({log_file_path})，将创建新记忆。")
             return None  # 没有历史，无需蒸馏
+        except Exception as e:
+            logger.error(f"❌ 读取项目日志失败 ({log_file_path}): {e}")
+            return None
 
         if not full_log.strip():
             logger.info("ℹ️ 项目日志为空，无需蒸馏。")
@@ -260,6 +266,14 @@ class AIService:
             ---
             {today_technical_summary}
             ---
+
+        {f'''
+        3.  **项目 README (使命与愿景)**:
+            (这能让你理解项目的核心价值和目标用户)
+            ---
+            {project_readme}
+            ---
+        ''' if project_readme else ''}
 
         请基于以上**所有材料**，撰写这篇公众号文章 (Markdown 格式)：
 
