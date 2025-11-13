@@ -199,3 +199,57 @@ def distill_project_memory(config: GitReportConfig) -> Optional[str]:
 
 
 # --- (新增) V2.2 END ---
+
+
+# --- (新增) V2.3 START: 公众号文章生成 ---
+def generate_public_article(
+    config: GitReportConfig,
+    today_technical_summary: str,
+    project_historical_memory: str,
+    project_readme: Optional[str] = None,  # <-- V2.4 新增参数
+) -> Optional[str]:
+    """
+    (V2.4 升级)
+    将技术摘要和项目历史，转换为面向公众的公众号文章，并利用 README 文件。
+    """
+    logger.info("✍️ 正在启动 AI '风格转换' 阶段 (生成公众号文章)...")
+
+    model = _configure_genai(config)
+    if not model:
+        return None
+
+    # 构造 Prompt
+    prompt = f"""
+    你是一名资深的技术市场运营专家 (Tech Marketer) 和内容创作者。
+    你的任务是为我们的项目撰写一篇面向用户和社区的“开发日志”或“公众号更新”。
+    文章风格必须是：通俗易懂、充满热情、强调用户价值，而不是罗列技术术语。
+
+    {f'''
+    --- 项目背景与目标 (来自 README.md) ---
+    这份文件定义了项目的使命、主要功能和市场定位。
+    请确保你的文章风格和重点与其吻合。
+    {project_readme}
+    --- 项目背景结束 ---
+    ''' if project_readme and project_readme.strip() else ''}
+
+    为了帮助你写作，我将提供两份材料：
+
+    1.  **项目历史与记忆 (浓缩版)**:
+        ...
+    2.  **今天的技术工作摘要**:
+        ...
+
+    请基于以上**所有材料**，撰写这篇公众号文章 (Markdown 格式)：
+    ... (其余要求保持不变) ...
+    """
+
+    try:
+        response = model.generate_content(prompt)
+        logger.info("✅ AI '风格转换' 成功 (已包含项目背景)")
+        return response.text
+    except Exception as e:
+        logger.error(f"❌ AI '风格转换' 失败: {e}")
+        return None
+
+
+# --- (新增) V2.3 END ---
