@@ -31,8 +31,13 @@ class GeminiProvider(LLMProvider):
         try:
             genai.configure(api_key=self.config.GEMINI_API_KEY)
             self.default_model = self.config.DEFAULT_MODEL_GEMINI
-            # 预热一个模型实例以供 generate_summary 使用
-            self.model = genai.GenerativeModel(self.default_model)
+
+            # (V3.4.1 修复) 预热模型实例
+            self.model_instance = genai.GenerativeModel(self.default_model)
+
+            # (V3.4.1 修复) 存储预热模型的名称，以备比较
+            self.default_model_name_cached = self.model_instance.model_name
+
             logger.info(
                 f"✅ (V3.4) GeminiProvider 初始化成功 (默认模型: {self.default_model})"
             )
@@ -55,18 +60,18 @@ class GeminiProvider(LLMProvider):
             # (V3.4) 选择模型：使用指定的 model_name 或默认模型
             model_to_use = model_name or self.default_model
 
-            # 如果请求的模型与实例化的模型不同，则重新创建
-            if model_to_use != self.model.model_name:
+            if model_to_use == self.default_model:
+                model_instance = self.model_instance  # 使用预热的实例
+            else:
+                # 仅当 V3.5 传入 --model 且不是默认值时
                 logger.warning(f"(V3.4) 切换 Gemini 模型至: {model_to_use}")
                 model_instance = genai.GenerativeModel(model_to_use)
-            else:
-                model_instance = self.model
 
-            response = model_instance.generate_content(full_prompt)
-
+            response = model_instance.generate_content(
+                full_prompt
+            )  # <--- 卡住的真正位置
             return response.text
 
         except Exception as e:
             logger.error(f"❌ [GeminiProvider 错误] 生成内容失败: {e}")
-            # 在实际应用中，我们会使用更具体的错误处理
             raise

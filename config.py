@@ -88,7 +88,7 @@ class GitReportConfig:
 
     # 3. 应用程序默认值
     # (V3.4 新增) 允许在 .env 中设置 DEFAULT_LLM, 默认为 "gemini"
-    DEFAULT_LLM: str = os.getenv("DEFAULT_LLM", "gemini")
+    DEFAULT_LLM: str = os.getenv("DEFAULT_LLM", "gemini").lower()
 
     # (V3.4 新增) 供应商的默认模型
     # (匹配 V3.3 ai_summarizer.py 的硬编码 "gemini-2.5-flash")
