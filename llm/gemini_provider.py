@@ -193,3 +193,9 @@ class GeminiProvider(LLMProvider):
                 "readme_block": readme_block,
             },
         )
+
+    def distill_memory(self, full_log: str) -> Optional[str]:
+        """
+        (V3.6 补丁) 实现了 ABC 接口中缺失的 'distill_memory' 方法。
+        """
+        return self._generate("memory_distill", {"full_log": full_log})
