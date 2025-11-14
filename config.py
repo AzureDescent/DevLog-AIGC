@@ -3,19 +3,13 @@ import os
 from dotenv import load_dotenv
 
 
-# --- (新增) V3.0: 定义脚本的基础路径 ---
-# 无论从哪里运行，SCRIPT_BASE_PATH 都是 config.py 所在的目录
-
+# --- (V3.0) 脚本基础路径 (V3.3 保持不变) ---
 SCRIPT_BASE_PATH = os.path.abspath(os.path.dirname(__file__))
-
-# 从脚本的基础路径加载 .env 文件
-# 这使得 .env 文件可以和脚本放在一起，而不是放在目标仓库
 env_path = os.path.join(SCRIPT_BASE_PATH, ".env")
 if os.path.exists(env_path):
     load_dotenv(env_path)
     print(f"✅ (V3.0) 已从脚本目录加载 .env: {env_path}")
 else:
-    # 尝试从 CWD 加载（保留旧的兼容性，但 V3.0 推荐 .env 随脚本）
     load_dotenv()
     print("⚠️ (V3.0) 未在脚本目录找到 .env，尝试从 CWD 加载。")
 
@@ -23,73 +17,46 @@ else:
 class GitReportConfig:
     """Git报告配置参数类"""
 
-    # --- (新增) V3.0: 路径配置 ---
-    # 1. 脚本的数据存储根目录
+    # --- (V3.0 & V3.1) 路径配置 (V3.3 保持不变) ---
     SCRIPT_BASE_PATH: str = SCRIPT_BASE_PATH
-    # 2. 要分析的目标 Git 仓库路径 (默认: CWD, 将被 argparse 覆盖)
     REPO_PATH: str = "."
-
-    # --- (新增) V3.1: 隔离的数据路径 ---
-    # 这是所有项目数据存储的根目录名 (相对于 SCRIPT_BASE_PATH)
     DATA_ROOT_DIR_NAME: str = "data"
-    # 这是 *当前* 项目的专属数据路径 (将在 GitReport.py 中被设置)
-    # 例如: /path/to/script/data/Project-A
     PROJECT_DATA_PATH: str = ""
-    # --- (V3.1 结束) ---
 
-    # --- (修改) V3.2: 范围参数化 ---
-    # 1. 用于日志输出的描述
+    # --- (V3.2) 范围参数 (V3.3 保持不变) ---
     TIME_RANGE_DESCRIPTION: str = "1 day ago"
-    # 2. 用于 git 命令的实际参数
     COMMIT_RANGE_ARG: str = '--since="1 day ago"'
-    # --- (V3.2 结束) ---
-
-    # --- (修改) V3.2: 更新 Git 命令格式 ---
     GIT_LOG_FORMAT = 'git log {commit_range_arg} --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'
     GIT_STATS_FORMAT = 'git log {commit_range_arg} --numstat --pretty=format:""'
-    # --- (V3.2 结束) ---
-
     GIT_COMMIT_DIFF_FORMAT = 'git show {commit_hash} --pretty="" --no-color'
 
     # V2.2 记忆文件 (文件名保持相对，我们将用 SCRIPT_BASE_PATH 组合)
     PROJECT_LOG_FILE: str = "project_log.jsonl"
     PROJECT_MEMORY_FILE: str = "project_memory.md"
     OUTPUT_FILENAME_PREFIX = "GitReport"
-
-    # --- (新增) V2.1 START ---
-    # 定义 AI 摘要的缓存文件名
     AI_CACHE_FILENAME: str = ".ai_summary_cache.md"
-    # --- (新增) V2.1 END ---
 
-    # =================================================================
-    # 新增：智能过滤 (Sieving) 模式
-    # 使用 fnmatch 语法 (https://docs.python.org/3/library/fnmatch.html)
-    # =================================================================
+    # --- V3.3 智能过滤 ---
     FILTER_FILE_PATTERNS: list[str] = [
-        # 锁定文件 (通常包含大量自动生成的变更)
         "*.lock",
         "package-lock.json",
         "pnpm-lock.yaml",
         "poetry.lock",
         "pdm.lock",
         "uv.lock",
-        # 编译和构建产物
         "dist/*",
         "build/*",
         "*.min.js",
         "*.pyc",
         "*.so",
         "*.o",
-        # 缓存和临时文件
         "__pycache__/*",
         ".pytest_cache/*",
         ".mypy_cache/*",
         ".ruff_cache/*",
-        # IDE 和环境配置 (通常不应提交，但万一提交了)
         ".vscode/*",
         ".idea/*",
         ".env",
-        # 常见的二进制/资源文件 (diff 无意义)
         "*.png",
         "*.jpg",
         "*.jpeg",
@@ -106,10 +73,42 @@ class GitReportConfig:
         "*.tar.gz",
     ]
 
-    # AI 配置
-    AI_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    # =================================================================
+    # --- (V3.4) AI 供应商配置 (核心修改) ---
+    # =================================================================
 
-    # 邮件(SMTP)配置
+    # 1. 供应商 API 密钥
+    # (V3.4 重命名) 确保你的 .env 文件使用 GEMINI_API_KEY
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    # (V3.4 新增) 确保你的 .env 文件使用 DEEPSEEK_API_KEY
+    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
+
+    # 2. 供应商特定配置
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+
+    # 3. 应用程序默认值
+    # (V3.4 新增) 允许在 .env 中设置 DEFAULT_LLM, 默认为 "gemini"
+    DEFAULT_LLM: str = os.getenv("DEFAULT_LLM", "gemini")
+
+    # (V3.4 新增) 供应商的默认模型
+    # (匹配 V3.3 ai_summarizer.py 的硬编码 "gemini-2.5-flash")
+    DEFAULT_MODEL_GEMINI: str = "gemini-2.5-flash"
+    DEFAULT_MODEL_DEEPSEEK: str = "deepseek-chat"
+
+    # (V3.4 新增) 供应商配置验证辅助函数
+    def is_provider_configured(self, provider: str) -> bool:
+        """
+        检查特定供应商是否已在环境中设置其 API 密钥。
+        """
+        if provider == "gemini":
+            return bool(self.GEMINI_API_KEY)
+        if provider == "deepseek":
+            return bool(self.DEEPSEEK_API_KEY)
+        return False
+
+    # =================================================================
+    # --- (V3.3 保持不变) 邮件(SMTP)配置 ---
+    # =================================================================
     SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.example.com")
     SMTP_PORT: int = 465
     SMTP_USER: str = os.getenv("SMTP_USER", "your-email@example.com")

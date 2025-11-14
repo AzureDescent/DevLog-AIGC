@@ -5,55 +5,88 @@ from typing import Optional
 from config import GitReportConfig
 import os
 
+# --- (V3.4) 导入抽象层和具体策略 ---
+from llm.provider_abc import LLMProvider
+from llm.gemini_provider import GeminiProvider
+from llm.deepseek_provider import DeepSeekProvider
+
+# --- (V3.4) 结束 ---
+
+
 try:
     import google.generativeai as genai
 except ImportError:
     print("错误: google-generativeai 库未安装。请运行: pip install google-generativeai")
-    sys.exit(1)
+    pass
 
 logger = logging.getLogger(__name__)
 
 
+# --- (V3.4) 工厂函数 ---
+def get_llm_provider(provider_id: str, config: GitReportConfig) -> LLMProvider:
+    """
+    (V3.4) 工厂函数，根据 provider_id 选择并实例化正确的 LLM 供应商
+    这是策略模式选择的核心。
+    """
+    logger.info(f"ℹ️ (V3.4) 正在尝试初始化 LLM 供应商: {provider_id}")
+
+    # (V3.4) 验证所选供应商是否已设置其密钥
+    if not config.is_provider_configured(provider_id):
+        logger.error(f"❌ (V3.4) 供应商 '{provider_id}' 未配置。")
+        raise ValueError(
+            f"供应商 '{provider_id}' 未配置。 "
+            f"请在您的 .env 文件中设置相应的 API 密钥。"
+        )
+
+    # (V3.4) 策略选择
+    try:
+        if provider_id == "gemini":
+            return GeminiProvider(config)
+        elif provider_id == "deepseek":
+            return DeepSeekProvider(config)
+
+        # (V3.4) 未知供应商的回退
+        logger.error(f"❌ (V3.4) 未知的 LLM 供应商: {provider_id}")
+        raise ValueError(f"未知的 LLM 供应商: {provider_id}")
+    except ImportError as e:
+        logger.error(f"❌ (V3.4) 导入供应商 '{provider_id}' 失败。")
+        logger.error(
+            f"   请确保已安装所有必需的依赖 (例如 'pip install google-generativeai openai')。"
+        )
+        raise ImportError(f"供应商 '{provider_id}' 依赖缺失: {e}")
+    except Exception as e:
+        # 捕获 Gemini/DeepSeek __init__ 中的其他异常
+        logger.error(f"❌ (V3.4) 实例化供应商 '{provider_id}' 失败: {e}")
+        raise
+
+
 # (V2.4 重构: 整个文件被重构为 AIService 类)
-
-
 class AIService:
     """
-    封装所有对 Google Gemini AI 的调用。
-    在初始化时配置一次模型，供所有方法使用。
+    (V3.4 重构) 封装所有对 LLM 的调用。
+    在初始化时配置一次供应商 (策略)。
     """
 
-    def __init__(self, config: GitReportConfig):
+    def __init__(self, config: GitReportConfig, provider_id: str):
         """
-        初始化 AI 服务，加载配置并配置一次 GenAI 模型。
+        (V3.4 修改) 初始化 AI 服务
+        - provider_id: [V3.4] 用户选择的供应商 ID (例如 "gemini") 。
         """
         self.config = config
-        # (V2.4 重构: 在初始化时调用一次，并存储模型实例)
-        self.model = self._configure_genai()
-        if self.model:
-            logger.info("🤖 AI 服务已成功初始化 (Gemini 2.5 Flash)")
-        else:
-            logger.error("❌ AI 服务初始化失败，后续 AI 功能将不可用。")
 
-    def _configure_genai(self) -> Optional[genai.GenerativeModel]:  # type: ignore
-        """
-        (V2.4 重构: 转换为私有方法)
-        辅助函数，用于配置 GenAI，避免代码重复。
-        """
-        # (V2.4 重构: 使用 self.config)
-        if not self.config.AI_API_KEY:
-            logger.warning("❌ 未配置 GOOGLE_API_KEY 环境变量")
-            return None
-        try:
-            # (V2.4 重构: 使用 self.config)
-            genai.configure(api_key=self.config.AI_API_KEY)  # type: ignore
-            model = genai.GenerativeModel("gemini-2.5-flash")  # type: ignore
-            return model
-        except Exception as e:
-            logger.error(f"❌ GenAI 配置失败: {e}")
-            return None
+        # (V3.4) AIService 持有一个对 "Strategy" (LLMProvider) 的引用
+        # 它从工厂获取这个供应商 。
+        # 如果 provider_id 无效或未配置，工厂将引发 ValueError。
+        self.provider: LLMProvider = get_llm_provider(provider_id, config)
 
-    # --- (V3.3) 新增: Prompt 加载器 ---
+        logger.info(
+            f"✅ 🤖 AI 服务已成功初始化 (Provider: {self.provider.__class__.__name__})"
+        )
+
+    # (V3.4) 移除: _configure_genai(self)
+    # 此逻辑现已移至 llm/gemini_provider.py
+
+    # --- (V3.3) Prompt 加载器 (V3.4 保持不变) ---
     def _load_prompt_template(self, template_name: str) -> Optional[str]:
         """(V3.3) 辅助函数：从 prompts/ 目录加载模板"""
         prompt_path = os.path.join(
@@ -69,42 +102,70 @@ class AIService:
             logger.error(f"❌ (V3.3) 加载 Prompt 模板失败 ({prompt_path}): {e}")
             return None
 
-    # --- (V3.3) 结束 ---
+    # --- (V3.4) 重构所有 AI 调用方法 ---
 
-    def get_single_diff_summary(self, diff_content: str) -> Optional[str]:
+    def _generate_content(
+        self, prompt_template_name: str, format_kwargs: dict
+    ) -> Optional[str]:
         """
-        (V2.4 重构: 转换为方法)
-        (V3.3 修改: 从 prompts/diff_map.txt 加载 Prompt)
-        (新增 "Map" 阶段)
-        使用 AI 单独总结一个 diff 的核心逻辑变更。
+        (V3.4 新增) 内部辅助函数，用于统一调用 self.provider。
         """
-        if not self.model:
+        if not self.provider:
+            logger.error("❌ (V3.4) AI Provider 未初始化。")
             return None
 
         # (V3.3) 加载 Prompt
-        prompt_template = self._load_prompt_template("diff_map.txt")
+        prompt_template = self._load_prompt_template(prompt_template_name)
         if not prompt_template:
             return None
 
-        logger.info("🤖 正在调用 AI 总结单个 Diff...")
+        # (V3.3) 格式化 Prompt
+        try:
+            user_prompt = prompt_template.format(**format_kwargs)
+        except KeyError as e:
+            logger.error(
+                f"❌ (V3.4) 格式化 Prompt '{prompt_template_name}' 失败: 缺少键 {e}"
+            )
+            return None
 
+        logger.info(f"🤖 正在调用 AI Provider: {self.provider.__class__.__name__}...")
+
+        try:
+            # (V3.4) 将工作委托给选定的供应商
+            # 我们将 V3.3 完整的、已格式化的提示作为 'user_prompt' 传递。
+            # 'system_prompt' 暂时为空。
+            # V3.5 将通过修改此处的逻辑来实现提示词差异化 。
+            system_prompt = ""
+
+            response_text = self.provider.generate_summary(
+                system_prompt=system_prompt, user_prompt=user_prompt
+            )
+
+            logger.info(f"✅ AI Provider 调用成功 ({prompt_template_name})")
+            return response_text
+
+        except Exception as e:
+            logger.error(
+                f"❌ AI Provider 调用失败 ({self.provider.__class__.__name__}): {e}"
+            )
+            return None
+
+    def get_single_diff_summary(self, diff_content: str) -> Optional[str]:
+        """
+        (V3.4 重构) 使用 AI 单独总结一个 diff 的核心逻辑变更。
+        """
         if len(diff_content) > 100000:
             logger.warning(
                 f"⚠️ Diff 内容过长 ({len(diff_content)} chars)，跳过 AI 总结。"
             )
             return "(Diff 内容过长，已跳过总结)"
 
-        # (V3.3) 格式化 Prompt
-        prompt = prompt_template.format(diff_content=diff_content)
+        summary = self._generate_content("diff_map.txt", {"diff_content": diff_content})
 
-        try:
-            response = self.model.generate_content(prompt)
-            summary = response.text.strip().replace("\n", " ")
-            logger.info(f"✅ 单个 Diff 总结成功: {summary}")
-            return summary
-        except Exception as e:
-            logger.error(f"❌ 单个 Diff 总结失败: {e}")
-            return None
+        # (V3.3) V3.3 的特定后处理
+        if summary:
+            return summary.strip().replace("\n", " ")
+        return None
 
     def get_ai_summary(
         self,
@@ -113,19 +174,8 @@ class AIService:
         previous_summary: Optional[str] = None,
     ) -> Optional[str]:
         """
-        (V3.3 修改: 从 prompts/summary_reduce.txt 加载 Prompt)
-        使用 AI 生成最终的工作摘要。
+        (V3.4 重构) 使用 AI 生成最终的工作摘要。
         """
-        logger.info("🤖 正在调用 AI 生成*最终*摘要...")
-
-        if not self.model:
-            return None
-
-        # (V3.3) 加载 Prompt
-        prompt_template = self._load_prompt_template("summary_reduce.txt")
-        if not prompt_template:
-            return None
-
         # (V3.3) 准备用于模板的动态内容块
         history_block = (
             f"""
@@ -147,25 +197,18 @@ class AIService:
             else ""
         )
 
-        # (V3.3) 格式化 Prompt
-        prompt = prompt_template.format(
-            history_block=history_block, text_report=text_report, diff_block=diff_block
+        return self._generate_content(
+            "summary_reduce.txt",
+            {
+                "history_block": history_block,
+                "text_report": text_report,
+                "diff_block": diff_block,
+            },
         )
-
-        try:
-            response = self.model.generate_content(prompt)
-            logger.info("✅ AI 最终摘要生成成功 (已包含历史上下文)")
-            return response.text
-
-        except Exception as e:
-            logger.error(f"❌ AI 最终摘要生成失败: {e}")
-            return None
 
     def distill_project_memory(self) -> Optional[str]:
         """
-        (V3.1 修改)
-        (V3.3 修改: 从 prompts/memory_distill.txt 加载 Prompt)
-        (记忆蒸馏) 读取 *所有* 的历史日志，生成一个浓缩的、有权重的记忆文件。
+        (V3.4 重构) (记忆蒸馏) 读取历史日志，生成浓缩记忆。
         """
         logger.info("🧠 正在启动 AI '记忆蒸馏' 阶段...")
 
@@ -187,24 +230,7 @@ class AIService:
             logger.info("ℹ️ 项目日志为空，无需蒸馏。")
             return None
 
-        if not self.model:
-            return None
-
-        # (V3.3) 加载 Prompt
-        prompt_template = self._load_prompt_template("memory_distill.txt")
-        if not prompt_template:
-            return None
-
-        # (V3.3) 格式化 Prompt
-        prompt = prompt_template.format(full_log=full_log)
-
-        try:
-            response = self.model.generate_content(prompt)
-            logger.info("✅ AI '记忆蒸馏' 成功")
-            return response.text
-        except Exception as e:
-            logger.error(f"❌ AI '记忆蒸馏' 失败: {e}")
-            return None
+        return self._generate_content("memory_distill.txt", {"full_log": full_log})
 
     def generate_public_article(
         self,
@@ -213,18 +239,9 @@ class AIService:
         project_readme: Optional[str] = None,
     ) -> Optional[str]:
         """
-        (V3.3 修改: 从 prompts/public_article.txt 加载 Prompt)
-        将技术摘要和项目历史，转换为面向公众的公众号文章，并利用 README 文件。
+        (V3.4 重构) 转换为面向公众的公众号文章。
         """
         logger.info("✍️ 正在启动 AI '风格转换' 阶段 (生成公众号文章)...")
-
-        if not self.model:
-            return None
-
-        # (V3.3) 加载 Prompt
-        prompt_template = self._load_prompt_template("public_article.txt")
-        if not prompt_template:
-            return None
 
         # (V3.3) 准备用于模板的动态内容块
         readme_block = (
@@ -239,17 +256,11 @@ class AIService:
             else ""
         )
 
-        # (V3.3) 格式化 Prompt
-        prompt = prompt_template.format(
-            project_historical_memory=project_historical_memory,
-            today_technical_summary=today_technical_summary,
-            readme_block=readme_block,
+        return self._generate_content(
+            "public_article.txt",
+            {
+                "project_historical_memory": project_historical_memory,
+                "today_technical_summary": today_technical_summary,
+                "readme_block": readme_block,
+            },
         )
-
-        try:
-            response = self.model.generate_content(prompt)
-            logger.info("✅ AI '风格转换' 成功 (已包含项目背景)")
-            return response.text
-        except Exception as e:
-            logger.error(f"❌ AI '风格转换' 失败: {e}")
-            return None
