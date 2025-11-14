@@ -149,16 +149,20 @@ class AIService:
         today_technical_summary: str,
         project_historical_memory: str,
         project_readme: Optional[str] = None,
+        style: str = "default"  # (V3.6) 接收来自 GitReport.py 的 style
     ) -> Optional[str]:
         """
-        (V3.5 重构) 委托 Provider 生成公众号文章。
+        (V3.6 重构) 委托 Provider 生成公众号文章。
         """
-        logger.info("✍️ 正在启动 AI '风格转换' 阶段 (生成公众号文章)...")
+        logger.info(f"✍️ 正在启动 AI '风格转换' 阶段 (Style: {style})...") # (V3.6)
         try:
-            # (V3.5) 纯委托
+            # (V3.6) 将 style 透传给 provider
             return self.provider.generate_article(
-                today_technical_summary, project_historical_memory, project_readme
+                today_technical_summary,
+                project_historical_memory,
+                project_readme,
+                style=style
             )
         except Exception as e:
-            logger.error(f"❌ (V3.5) generate_public_article 失败: {e}")
+            logger.error(f"❌ (V3.6) generate_public_article (style={style}) 失败: {e}")
             return None

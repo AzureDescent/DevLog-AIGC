@@ -204,22 +204,31 @@ def main_flow(args: argparse.Namespace):
     # 9. 风格转换 (V3.3 保持不变, ai_service 内部已重构)
     public_article = None
     if ai_summary and previous_summary and not args.no_ai and ai_service:
-        logger.info("🤖 启动 V2.3 风格转换...")
-        # (V3.4) 此处调用不变，但 ai_service 内部已重构
+        logger.info(
+            f"🤖 启动 V3.6 风格转换 (Style: {args.style})..."
+        )  # (V3.6) 更新日志
+
+        # (V3.6) 核心修改：将 args.style 传递下去
         public_article = ai_service.generate_public_article(
             ai_summary,
             previous_summary,
             project_readme,
+            style=args.style,  # (V3.6) 新增 style 参数
         )
         if public_article:
-            article_filename = f"PublicArticle_{datetime.now().strftime('%Y%m%d')}.md"
+            # (V3.6) 在文件名中包含风格
+            article_filename = (
+                f"PublicArticle_{args.style}_{datetime.now().strftime('%Y%m%d')}.md"
+            )
             article_full_path = os.path.join(cfg.PROJECT_DATA_PATH, article_filename)
             try:
                 with open(article_full_path, "w", encoding="utf-8") as f:
                     f.write(public_article)
                 logger.info(f"✅ 公众号文章已保存: {article_full_path}")
                 print("\n" + "=" * 50)
-                print(f"📰 AI 生成的公众号文章预览 (已保存至 {article_full_path}):")
+                print(
+                    f"📰 AI 生成的公众号文章 (风格: {args.style}) 预览 (已保存至 {article_full_path}):"
+                )  # (V3.6)
                 print("=" * 50)
                 print(public_article)
             except Exception as e:
@@ -311,6 +320,17 @@ if __name__ == "__main__":
         "(默认: 在 config.py 中设置的 DEFAULT_LLM)",
     )
     # --- (V3.4) 结束 ---
+
+    # --- (V3.6) 新增 Style 参数 ---
+    parser.add_argument(
+        "--style",
+        type=str,
+        default="default", # 默认为 V3.5 的行为
+        help="[V3.6] 指定公众号文章的风格。\n"
+             "对应 prompts/<provider>/articles/ 目录下的文件名 (不含.txt)。\n"
+             "例如: 'default', 'novel', 'anime'。 (默认: 'default')"
+    )
+    # --- (V3.6) 结束 ---
 
     parser.add_argument("--no-ai", action="store_true", help="禁用 AI 摘要功能")
     parser.add_argument(

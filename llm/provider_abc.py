@@ -38,6 +38,7 @@ class LLMProvider(ABC):
         today_technical_summary: str,
         project_historical_memory: str,
         project_readme: Optional[str] = None,
+        style: str = "default",  # (V3.6) 新增 style 参数
     ) -> Optional[str]:
-        """(V3.5) 生成公众号文章"""
+        """(V3.6) 生成公众号文章 (支持多风格)"""
         pass
