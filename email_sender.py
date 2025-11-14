@@ -34,6 +34,7 @@ def send_email_report(
         subject = f"Git 工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
 
         # (V3.7) 动态获取附件名，使邮件正文更准确
+        # (V3.7-PDF) 此处无需修改，basename 会自动处理 .html 或 .pdf
         attachment_filename = os.path.basename(attachment_path)
 
         html_body = f"""
@@ -53,7 +54,7 @@ def send_email_report(
             to=recipient_email,
             subject=subject,
             contents=html_body,
-            attachments=attachment_path,  # (V2.7) 使用重命名后的参数
+            attachments=attachment_path,  # (V3.7) 使用重命名后的参数
         )
         logger.info(
             f"✅ 邮件已成功发送至 {recipient_email} (附件: {attachment_filename})"

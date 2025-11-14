@@ -1,7 +1,8 @@
 """
-Git工作日报生成器 (V3.4)
+Git工作日报生成器 (V3.7-PDF)
 本脚本用于协调 Git 报告的生成、AI 分析和分发。
 - V3.4: 增加 --llm 参数，用于选择 AI 供应商。
+- V3.7: 增加 --attach-format [html|pdf] 参数，支持 PDF 附件。
 """
 
 import argparse
@@ -18,6 +19,7 @@ import git_utils
 import report_builder
 from ai_summarizer import AIService  # (V3.4) 此模块内部已重构
 import email_sender
+import pdf_converter  # <--- [V3.7 新增] 导入 PDF 转换器
 
 # 1. 初始化日志
 utils.setup_logging()
@@ -63,7 +65,7 @@ def main_flow(args: argparse.Namespace):
     # --- (V3.4) 结束 ---
 
     logger.info("=" * 50)
-    logger.info(f"🚀 (V3.4) DevLog-AIGC 启动...")
+    logger.info(f"🚀 (V3.7-PDF) DevLog-AIGC 启动...")  # [V3.7 修改]
     logger.info(f"   [目标仓库 (REPO_PATH)]: {cfg.REPO_PATH}")
     logger.info(f"   [数据存储 (DATA_PATH)]: {cfg.PROJECT_DATA_PATH}")
     logger.info(f"   [分析范围]: {cfg.TIME_RANGE_DESCRIPTION}")
@@ -81,7 +83,7 @@ def main_flow(args: argparse.Namespace):
             # 如果 API 密钥缺失或供应商无效，这里将引发 ValueError
             ai_service = AIService(cfg, provider_id=provider_id)
         except (ValueError, ImportError) as e:
-            # (V3.4) 捕获来自工厂的配置错误 [cite: 247]
+            # (V3.4) 捕获来自工厂的配置错误
             logger.error(f"❌ (V3.4) AI 服务初始化失败: {e}")
             logger.error(
                 "   请检查您的 .env 文件是否已正确配置 (例如 GEMINI_API_KEY 或 DEEPSEEK_API_KEY)。"
@@ -201,62 +203,81 @@ def main_flow(args: argparse.Namespace):
         logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
         return
 
-    # --- (V3.7) 在步骤 9 之前初始化变量 ---
+    # --- (V3.7-MD) 在步骤 9 之前初始化变量 ---
     public_article = None
     article_full_path = None
-    # --- (V3.7) 结束 ---
+    # --- (V3.7-MD) 结束 ---
 
     # 9. 风格转换 (V3.3 保持不变, ai_service 内部已重构)
     public_article = None
-    if ai_summary and previous_summary and not args.no_ai and ai_service:
-        logger.info(
-            f"🤖 启动 V3.6 风格转换 (Style: {args.style})..."
-        )  # (V3.6) 更新日志
+    # [V3.7 修改]
+    # 无论是否发送邮件，只要设置了 --attach-format pdf，都需要尝试生成
+    needs_article = args.email and args.attach_format == "pdf"
 
-        # (V3.6) 核心修改：将 args.style 传递下去
-        public_article = ai_service.generate_public_article(
-            ai_summary,
-            previous_summary,
-            project_readme,
-            style=args.style,  # (V3.6) 新增 style 参数
-        )
-        if public_article:
-            # (V3.6) 在文件名中包含风格
-            article_filename = (
-                f"PublicArticle_{args.style}_{datetime.now().strftime('%Y%m%d')}.md"
+    # [V3.7 修改] 优化触发条件
+    # 1. 用户想发 PDF 附件
+    # 2. 或者用户 *没* 指定发邮件，但指定了 --style (V3.6 的原始行为，生成 md 文件)
+    if (needs_article) or (not args.email and args.style != "default"):
+        if ai_summary and previous_summary and not args.no_ai and ai_service:
+            logger.info(
+                f"🤖 启动 V3.6 风格转换 (Style: {args.style})..."
+            )  # (V3.6) 更新日志
+
+            # (V3.6) 核心修改：将 args.style 传递下去
+            public_article = ai_service.generate_public_article(
+                ai_summary,
+                previous_summary,
+                project_readme,
+                style=args.style,  # (V3.6) 新增 style 参数
             )
-            article_full_path = os.path.join(cfg.PROJECT_DATA_PATH, article_filename)
-            try:
-                with open(article_full_path, "w", encoding="utf-8") as f:
-                    f.write(public_article)
-                logger.info(f"✅ 公众号文章已保存: {article_full_path}")
-                print("\n" + "=" * 50)
-                print(
-                    f"📰 AI 生成的公众号文章 (风格: {args.style}) 预览 (已保存至 {article_full_path}):"
-                )  # (V3.6)
-                print("=" * 50)
-                print(public_article)
-            except Exception as e:
-                logger.error(f"❌ 保存公众号文章失败: {e}")
+            if public_article:
+                # (V3.6) 在文件名中包含风格
+                article_filename = (
+                    f"PublicArticle_{args.style}_{datetime.now().strftime('%Y%m%d')}.md"
+                )
+                article_full_path = os.path.join(
+                    cfg.PROJECT_DATA_PATH, article_filename
+                )
+                try:
+                    with open(article_full_path, "w", encoding="utf-8") as f:
+                        f.write(public_article)
+                    logger.info(f"✅ 公众号文章 (Markdown) 已保存: {article_full_path}")
+
+                    # 仅在非邮件模式下打印预览 (V3.7)
+                    if not args.email:
+                        print("\n" + "=" * 50)
+                        print(
+                            f"📰 AI 生成的公众号文章 (风格: {args.style}) 预览 (已保存至 {article_full_path}):"
+                        )  # (V3.6)
+                        print("=" * 50)
+                        print(public_article)
+                except Exception as e:
+                    logger.error(f"❌ 保存公众号文章失败: {e}")
+                    article_full_path = None  # 保存失败
+        else:
+            logger.warning(f"ℹ️ 无法生成风格文章 (缺少 AI 摘要或历史记忆)。")
 
     # 10. 打印摘要到控制台 (V3.3 保持不变)
-    print("\n" + "=" * 50)
-    if ai_summary:
-        print(f"🤖 AI 工作摘要 (由 {provider_id} 生成):")  # (V3.4) 改进日志
+    # (V3.7) 如果是邮件模式，则跳过打印，以保持终端清洁
+    if not args.email:
+        print("\n" + "=" * 50)
+        if ai_summary:
+            print(f"🤖 AI 工作摘要 (由 {provider_id} 生成):")  # (V3.4) 改进日志
+            print("=" * 50)
+            print(ai_summary)
+        else:
+            print("📄 原始文本报告 (AI未运行或生成失败):")
+            print("=" * 50)
+            print(text_report)
         print("=" * 50)
-        print(ai_summary)
-    else:
-        print("📄 原始文本报告 (AI未运行或生成失败):")
-        print("=" * 50)
-        print(text_report)
-    print("=" * 50)
 
     # 11. 打印统计 (V3.3 保持不变)
-    print("\n📊 代码变更统计:")
-    print(f"   📈 新增行数: {stats['additions']}")
-    print(f"   📉 删除行数: {stats['deletions']}")
-    print(f"   📁 修改文件: {stats['files_changed']} (详情已包含在报告中)")
-    print(f"   👥 参与作者: {len(set(commit.author for commit in commits))}")
+    if not args.email:
+        print("\n📊 代码变更统计:")
+        print(f"   📈 新增行数: {stats['additions']}")
+        print(f"   📉 删除行数: {stats['deletions']}")
+        print(f"   📁 修改文件: {stats['files_changed']} (详情已包含在报告中)")
+        print(f"   👥 参与作者: {len(set(commit.author for commit in commits))}")
 
     # 12. (可选) 打开浏览器 (V3.3 保持不变)
     if not args.no_browser:
@@ -269,27 +290,45 @@ def main_flow(args: argparse.Namespace):
         if not ai_summary:
             logger.warning("AI 摘要不可用，将使用原始文本报告作为邮件正文。")
 
-        # --- (V3.7) 根据 --attachment-type 选择附件路径 ---
+        # --- [V3.7-PDF] 核心修改：根据 --attach-format 选择附件路径 ---
         attachment_to_send = None
+        pdf_full_path = None  # (V3.7-PDF)
 
-        if args.attachment_type == "md":
-            if article_full_path:
-                attachment_to_send = article_full_path
-                logger.info(f"💌 附件类型: 'md'。将发送: {attachment_to_send}")
+        if args.attach_format == "pdf":
+            logger.info(f"💌 附件格式: 'pdf'。")
+            if article_full_path:  # (V3.6 生成的 MD 路径)
+                logger.info(f"🤖 正在启动 V3.7 PDF 转换 (PrinceXML)...")
+                try:
+                    # 调用新模块
+                    pdf_full_path = pdf_converter.convert_md_to_pdf(
+                        article_full_path, cfg
+                    )
+                    if pdf_full_path:
+                        attachment_to_send = pdf_full_path
+                        logger.info(f"✅ PDF 转换成功: {attachment_to_send}")
+                    else:
+                        raise Exception("PDF 转换函数返回 None")
+                except Exception as e:
+                    logger.error(f"❌ PDF 转换失败: {e}")
+                    logger.warning(
+                        f"   将回退发送 HTML 报告: {html_filename_full_path}"
+                    )
+                    attachment_to_send = html_filename_full_path
             else:
-                # 如果用户想要 md，但 md 文件没有（因为跳过了风格转换）
+                # 如果用户想要 pdf，但 md 文件没有（因为跳过了风格转换或 AI 失败）
                 logger.warning(
-                    f"⚠️ 附件类型: 'md'，但风格文章未生成 (article_full_path is None)。"
+                    f"⚠️ 附件格式: 'pdf'，但风格文章未生成 (article_full_path is None)。"
                 )
                 logger.warning(f"   将回退发送 HTML 报告: {html_filename_full_path}")
                 attachment_to_send = html_filename_full_path
         else:
             # 默认 (html)
             attachment_to_send = html_filename_full_path
-            logger.info(f"💌 附件类型: 'html'。将发送: {attachment_to_send}")
+            logger.info(f"💌 附件格式: 'html'。将发送: {attachment_to_send}")
+        # --- [V3.7-PDF] 逻辑结束 ---
 
         if not attachment_to_send:
-            logger.error("❌ 邮件发送失败：找不到任何附件文件 (HTML or MD)。")
+            logger.error("❌ 邮件发送失败：找不到任何附件文件 (HTML or PDF)。")
             email_success = False
         else:
             email_success = email_sender.send_email_report(
@@ -298,7 +337,6 @@ def main_flow(args: argparse.Namespace):
                 email_body_content,
                 attachment_to_send,  # (V3.7) 传递选择后的路径
             )
-        # --- (V3.7) 逻辑结束 ---
 
         if email_success:
             print("\n[📢 邮件检测: 发送请求成功，请检查收件箱 (包括垃圾邮件)]")
@@ -312,7 +350,7 @@ def main_flow(args: argparse.Namespace):
 if __name__ == "__main__":
     # 1. 设置命令行参数解析
     parser = argparse.ArgumentParser(
-        description="Git 工作日报生成器 (V3.4)",
+        description="Git 工作日报生成器 (V3.7-PDF)",  # [V3.7 修改]
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
@@ -363,17 +401,17 @@ if __name__ == "__main__":
     )
     # --- (V3.6) 结束 ---
 
-    # --- (V3.7) 新增参数：用于选择邮件附件类型 ---
+    # --- [V3.7-PDF] 修改：用于选择邮件附件格式 ---
     parser.add_argument(
-        "--attachment-type",
+        "--attach-format",
         type=str,
-        choices=["html", "md"],
+        choices=["html", "pdf"],
         default="html",  # 默认行为保持不变，发送 html
-        help="[V-New] (与 -e 连用) 指定邮件的附件类型。\n"
+        help="[V3.7] (与 -e 连用) 指定邮件的附件格式。\n"
         "'html': 发送 GitReport_....html (默认)\n"
-        "'md': 发送 PublicArticle_....md (如果已生成)",
+        "'pdf': (实验性) 将风格文章转为 PDF (需安装 PrinceXML) 并发送",
     )
-    # --- (V3.7) 结束 ---
+    # --- [V3.7-PDF] 结束 ---
 
     parser.add_argument("--no-ai", action="store_true", help="禁用 AI 摘要功能")
     parser.add_argument(
