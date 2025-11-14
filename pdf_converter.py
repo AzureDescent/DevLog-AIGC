@@ -3,19 +3,14 @@
 [V3.7] PDF 转换器模块
 - 负责将 V3.6 生成的 Markdown 文章转换为 PDF
 - 使用 markdown 库转为 HTML
-- 使用 prince 库调用 PrinceXML 进行最终转换
+- (V3.7-Subprocess 修正版) 使用 subprocess 调用 PrinceXML 可执行文件
 """
 
 import logging
 import os
 import markdown
+import subprocess  # <--- [V3.7 修正] 导入 subprocess
 from typing import Optional
-
-try:
-    import prince
-except ImportError:
-    print("错误: prince 库未安装。请运行: pip install prince")
-    prince = None
 
 # (V3.7) 导入 SCRIPT_BASE_PATH 用于定位 CSS
 from config import GitReportConfig, SCRIPT_BASE_PATH
@@ -34,9 +29,6 @@ def convert_md_to_pdf(article_md_path: str, config: GitReportConfig) -> Optional
     Returns:
         Optional[str]: 成功则返回 PDF 文件的路径，失败则返回 None。
     """
-    if not prince:
-        logger.error("❌ (V3.7) Prince 库未加载。无法执行 PDF 转换。")
-        return None
 
     try:
         # 1. 定义路径
@@ -57,9 +49,7 @@ def convert_md_to_pdf(article_md_path: str, config: GitReportConfig) -> Optional
             md_content, extensions=["fenced_code", "tables"]
         )
 
-        # 5. 构建完整的 HTML 文档
-        #    (PrinceXML 需要完整的 HTML，<head> 中链接 CSS 是不可靠的，
-        #     使用 Prince 的 style_sheets 参数是最佳实践)
+        # 5. 构建完整的 HTML 文档 (用于 Prince 的 stdin)
         full_html_doc = f"""
         <!DOCTYPE html>
         <html>
@@ -75,27 +65,59 @@ def convert_md_to_pdf(article_md_path: str, config: GitReportConfig) -> Optional
         </html>
         """
 
-        # 6. 调用 PrinceXML
-        logger.info(f"    (PrinceXML) 正在使用 CSS: {css_path}")
-        logger.info(f"    (PrinceXML) 正在生成 PDF: {pdf_output_path}")
+        # 6. [V3.7 修正] 调用 PrinceXML CLI
 
-        p = prince.Prince(style_sheets=[css_path])
-        success = p.convert_string_to_file(full_html_doc, pdf_output_path)
+        # 构建命令：
+        # "prince" - 可执行文件
+        # "-" - 从 stdin 读取 HTML
+        # "-o <path>" - 指定输出文件
+        # "--style <path>" - 应用 CSS
+        command = ["prince", "-", "-o", pdf_output_path, "--style", css_path]
 
-        if not success:
-            logger.error("❌ (V3.7) Prince.convert_string_to_file 失败。")
+        logger.info(f"    (Prince CLI) 正在执行命令...")
+        # (为日志隐藏完整命令，因为它可能很长，但保留关键部分)
+        logger.info(f"    (Prince CLI) -> prince -o {pdf_output_path} --style ...")
+
+        # 启动子进程
+        p = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        # 将 HTML 字符串 (编码为 utf-8) 发送到进程的 stdin
+        # Popen.communicate 会发送数据、关闭 stdin、等待进程结束
+        outs, errs = p.communicate(full_html_doc.encode("utf-8"))
+
+        # 7. 检查结果
+        if p.returncode != 0:
+            # PrinceXML 执行失败
+            logger.error(
+                f"❌ (V3.7) PrinceXML CLI 失败 (Return Code: {p.returncode})。"
+            )
+            # Stderr 包含了 Prince 的错误信息
+            logger.error(f"   Stderr: {errs.decode('utf-8')}")
             return None
 
-        # 7. 检查输出
+        # 8. 检查输出文件
         if os.path.exists(pdf_output_path):
+            logger.info(f"   (Prince CLI) Stdout: {outs.decode('utf-8')}")
             return pdf_output_path
         else:
-            logger.error(f"❌ (V3.7) Prince 调用成功，但 PDF 文件未在预期位置找到。")
+            logger.error(
+                f"❌ (V3.7) PrinceXML 运行成功，但输出文件未找到: {pdf_output_path}"
+            )
             return None
 
-    except FileNotFoundError as e:
-        logger.error(f"❌ (V3.7) PDF 转换失败: 文件未找到 {e}")
+    except FileNotFoundError:
+        # 这是最关键的错误：如果 "prince" 命令找不到
+        logger.error("❌ (V3.7) 'prince' command not found.")
+        logger.error("   请确保 PrinceXML 已正确安装，并且 'prince' (或 'prince.exe')")
+        logger.error("   位于您系统的 PATH 环境变量中。")
         return None
     except Exception as e:
-        logger.error(f"❌ (V3.7) PDF 转换时发生未知错误: {e}", exc_info=True)
+        logger.error(
+            f"❌ (V3.7) PDF 转换 (subprocess) 时发生未知错误: {e}", exc_info=True
+        )
         return None
