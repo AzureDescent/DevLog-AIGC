@@ -1,6 +1,7 @@
 # email_sender.py
 import logging
 import sys
+import os  # (V3.7) 导入 os 以获取文件名
 from datetime import datetime
 from config import GitReportConfig
 
@@ -17,7 +18,7 @@ def send_email_report(
     config: GitReportConfig,
     recipient_email: str,
     ai_summary: str,
-    html_report_path: str,
+    attachment_path: str,  # (V3.7) 重命名此参数
 ) -> bool:
     """(V1.2) 使用 yagmail 发送邮件"""
     logger.info(f"📬 正在准备发送邮件至: {recipient_email} (使用 yagmail)")
@@ -31,6 +32,10 @@ def send_email_report(
         )
 
         subject = f"Git 工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
+
+        # (V3.7) 动态获取附件名，使邮件正文更准确
+        attachment_filename = os.path.basename(attachment_path)
+
         html_body = f"""
         <html>
         <body>
@@ -39,7 +44,7 @@ def send_email_report(
             <hr>
             <pre style="font-family: monospace; white-space: pre-wrap; padding: 10px; background: #f4f4f4; border-radius: 5px;">{ai_summary}</pre>
             <hr>
-            <p>详细的 HTML 可视化报告已作为附件添加，请查收。</p>
+            <p>详细的可视化报告 ({attachment_filename}) 已作为附件添加，请查收。</p>
         </body>
         </html>
         """
@@ -48,9 +53,11 @@ def send_email_report(
             to=recipient_email,
             subject=subject,
             contents=html_body,
-            attachments=html_report_path,
+            attachments=attachment_path,  # (V2.7) 使用重命名后的参数
         )
-        logger.info(f"✅ 邮件已成功发送至 {recipient_email}")
+        logger.info(
+            f"✅ 邮件已成功发送至 {recipient_email} (附件: {attachment_filename})"
+        )
         return True
 
     except Exception as e:

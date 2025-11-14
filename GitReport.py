@@ -201,6 +201,11 @@ def main_flow(args: argparse.Namespace):
         logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
         return
 
+    # --- (V3.7) 在步骤 9 之前初始化变量 ---
+    public_article = None
+    article_full_path = None
+    # --- (V3.7) 结束 ---
+
     # 9. 风格转换 (V3.3 保持不变, ai_service 内部已重构)
     public_article = None
     if ai_summary and previous_summary and not args.no_ai and ai_service:
@@ -263,12 +268,38 @@ def main_flow(args: argparse.Namespace):
         email_body_content = ai_summary if ai_summary else text_report
         if not ai_summary:
             logger.warning("AI 摘要不可用，将使用原始文本报告作为邮件正文。")
-        email_success = email_sender.send_email_report(
-            cfg,
-            args.email,
-            email_body_content,
-            html_filename_full_path,
-        )
+
+        # --- (V3.7) 根据 --attachment-type 选择附件路径 ---
+        attachment_to_send = None
+
+        if args.attachment_type == "md":
+            if article_full_path:
+                attachment_to_send = article_full_path
+                logger.info(f"💌 附件类型: 'md'。将发送: {attachment_to_send}")
+            else:
+                # 如果用户想要 md，但 md 文件没有（因为跳过了风格转换）
+                logger.warning(
+                    f"⚠️ 附件类型: 'md'，但风格文章未生成 (article_full_path is None)。"
+                )
+                logger.warning(f"   将回退发送 HTML 报告: {html_filename_full_path}")
+                attachment_to_send = html_filename_full_path
+        else:
+            # 默认 (html)
+            attachment_to_send = html_filename_full_path
+            logger.info(f"💌 附件类型: 'html'。将发送: {attachment_to_send}")
+
+        if not attachment_to_send:
+            logger.error("❌ 邮件发送失败：找不到任何附件文件 (HTML or MD)。")
+            email_success = False
+        else:
+            email_success = email_sender.send_email_report(
+                cfg,
+                args.email,
+                email_body_content,
+                attachment_to_send,  # (V3.7) 传递选择后的路径
+            )
+        # --- (V3.7) 逻辑结束 ---
+
         if email_success:
             print("\n[📢 邮件检测: 发送请求成功，请检查收件箱 (包括垃圾邮件)]")
         else:
@@ -325,12 +356,24 @@ if __name__ == "__main__":
     parser.add_argument(
         "--style",
         type=str,
-        default="default", # 默认为 V3.5 的行为
+        default="default",  # 默认为 V3.5 的行为
         help="[V3.6] 指定公众号文章的风格。\n"
-             "对应 prompts/<provider>/articles/ 目录下的文件名 (不含.txt)。\n"
-             "例如: 'default', 'novel', 'anime'。 (默认: 'default')"
+        "对应 prompts/<provider>/articles/ 目录下的文件名 (不含.txt)。\n"
+        "例如: 'default', 'novel', 'anime'。 (默认: 'default')",
     )
     # --- (V3.6) 结束 ---
+
+    # --- (V3.7) 新增参数：用于选择邮件附件类型 ---
+    parser.add_argument(
+        "--attachment-type",
+        type=str,
+        choices=["html", "md"],
+        default="html",  # 默认行为保持不变，发送 html
+        help="[V-New] (与 -e 连用) 指定邮件的附件类型。\n"
+        "'html': 发送 GitReport_....html (默认)\n"
+        "'md': 发送 PublicArticle_....md (如果已生成)",
+    )
+    # --- (V3.7) 结束 ---
 
     parser.add_argument("--no-ai", action="store_true", help="禁用 AI 摘要功能")
     parser.add_argument(
