@@ -1,8 +1,10 @@
 """
-Git工作日报生成器 (V3.8)
-- [V3.8] 增加 --configure 模式和 -p 别名模式，引入 config_manager。
-- [V3.7] 增加 --attach-format [html|pdf] 参数，支持 PDF 附件。
-- [V3.4] 增加 --llm 参数，用于选择 AI 供应商。
+Git工作日报生成器 (V3.9)
+- [V3.9] 增加 --cleanup 模式，用于项目清理
+- [V3.9] 邮件参数 (-e) 和配置 (default_email) 现在支持群发
+- [V3.8] 增加 --configure 模式和 -p 别名模式，引入 config_manager
+- [V3.7] 增加 --attach-format [html|pdf] 参数，支持 PDF 附件
+- [V3.4] 增加 --llm 参数，用于选择 AI 供应商
 """
 
 import argparse
@@ -11,6 +13,7 @@ import sys
 import os
 import json
 from datetime import datetime
+from typing import Optional, List, Dict, Any  # [V3.9] 确保导入 List
 
 # 导入所有重构后的模块
 from config import GitReportConfig
@@ -20,7 +23,7 @@ import report_builder
 from ai_summarizer import AIService  # (V3.4) 此模块内部已重构
 import email_sender
 import pdf_converter  # (V3.7)
-import config_manager  # <--- [V3.8 新增] 导入配置管理器
+import config_manager  # (V3.8) 导入配置管理器
 
 # 1. 初始化日志
 utils.setup_logging()
@@ -30,7 +33,7 @@ logger = logging.getLogger(__name__)
 def main_flow(args: argparse.Namespace):
     """
     主执行流程
-    (V3.8 重构)
+    (V3.9 重构)
     """
 
     # 1. 加载基础配置
@@ -51,7 +54,8 @@ def main_flow(args: argparse.Namespace):
         sys.exit(0)  # 配置完成后退出
 
     # --- [V3.8] 确定路径并加载项目配置 ---
-    project_config = {}
+    project_config: Dict[str, Any] = {}
+    alias: Optional[str] = None
 
     if args.project and args.repo_path:
         logger.error("❌ (V3.8) 不能同时使用 -p (别名) 和 -r (路径)。请只选其一。")
@@ -59,12 +63,11 @@ def main_flow(args: argparse.Namespace):
 
     if args.project:
         # (V3.8) 别名模式
-        repo_path_from_alias = config_manager.get_path_from_alias(
-            data_root_path, args.project
-        )
+        alias = args.project
+        repo_path_from_alias = config_manager.get_path_from_alias(data_root_path, alias)
         if not repo_path_from_alias:
             logger.error(
-                f"❌ (V3.8) 别名 '{args.project}' 未在 {data_root_path}/{config_manager.PROJECTS_JSON_FILE} 中找到。"
+                f"❌ (V3.8) 别名 '{alias}' 未在 {data_root_path}/{config_manager.PROJECTS_JSON_FILE} 中找到。"
             )
             logger.error(f"   请先使用 --configure -r ... 来配置它。")
             sys.exit(1)
@@ -73,7 +76,7 @@ def main_flow(args: argparse.Namespace):
             data_root_path, cfg.REPO_PATH
         )
         project_config = config_manager.load_project_config(cfg.PROJECT_DATA_PATH)
-        logger.info(f"ℹ️ (V3.8) 使用别名 '{args.project}' (路径: {cfg.REPO_PATH})")
+        logger.info(f"ℹ️ (V3.8) 使用别名 '{alias}' (路径: {cfg.REPO_PATH})")
 
     elif args.repo_path:
         # (V3.8) 直接路径模式 (V3.0 兼容)
@@ -99,7 +102,15 @@ def main_flow(args: argparse.Namespace):
     # 确保项目数据目录存在 (V3.1 逻辑保留)
     os.makedirs(cfg.PROJECT_DATA_PATH, exist_ok=True)
 
-    # --- [V3.8] 合并配置与命令行参数 ---
+    # --- [V3.9] 检查是否为清理模式 ---
+    if args.cleanup:
+        logger.info(f"🧹 (V3.9) 启动清理向导: {cfg.REPO_PATH}")
+        config_manager.run_interactive_cleanup_wizard(
+            data_root_path, cfg.PROJECT_DATA_PATH, cfg.REPO_PATH, alias
+        )
+        sys.exit(0)  # 清理完成后退出
+
+    # --- [V3.9] 合并配置与命令行参数 (邮件群发更新) ---
     # 优先级: 命令行Args > 项目config.json > 全局config.py
 
     # Git 范围参数 (无配置)
@@ -109,12 +120,18 @@ def main_flow(args: argparse.Namespace):
     # AI 与报告参数 (有配置)
     llm = args.llm or project_config.get("default_llm") or cfg.DEFAULT_LLM
     style = args.style or project_config.get("default_style") or "default"
-    email = (
-        args.email or project_config.get("default_email") or None
-    )  # V3.8 修正：确保 '' 变 None
     attach_format = (
         args.attach_format or project_config.get("default_attach_format") or "html"
     )
+
+    # [V3.9] 邮件群发逻辑
+    email_list: List[str] = []
+    if args.email:  # 1. 优先使用 CLI (逗号分隔的字符串)
+        email_list = [e.strip() for e in args.email.split(",") if e.strip()]
+    elif project_config.get("default_email"):  # 2. 其次使用 config.json (已经是列表)
+        email_list = project_config.get("default_email", [])  # 确保是列表
+
+    email = email_list if email_list else None  # 传递给后续步骤的变量
 
     # 标志参数 (无配置)
     no_ai = args.no_ai
@@ -134,8 +151,11 @@ def main_flow(args: argparse.Namespace):
     provider_id = llm
     # --- (V3.4) 结束 ---
 
+    # [V3.9] 更新日志
+    email_log_str = ", ".join(email) if email else "未设置"
+
     logger.info("=" * 50)
-    logger.info(f"🚀 (V3.8) DevLog-AIGC 启动...")
+    logger.info(f"🚀 (V3.9) DevLog-AIGC 启动...")
     logger.info(f"   [目标仓库 (REPO_PATH)]: {cfg.REPO_PATH}")
     logger.info(f"   [数据存储 (DATA_PATH)]: {cfg.PROJECT_DATA_PATH}")
     logger.info(f"   [分析范围]: {cfg.TIME_RANGE_DESCRIPTION}")
@@ -146,27 +166,21 @@ def main_flow(args: argparse.Namespace):
         f"   [文章风格 (Style)]: {style} {'(来自命令行)' if args.style else '(来自配置)'}"
     )
     logger.info(
-        f"   [邮件目标 (Email)]: {email or '未设置'} {'(来自命令行)' if args.email else '(来自配置)'}"
+        f"   [邮件目标 (Email)]: {email_log_str} {'(来自命令行)' if args.email else '(来自配置)'}"
     )
     logger.info(
-        f"   [附件格式 (Attach)]: {attach_format} {'(来自命令行)' if args.attach_format != 'html' else '(来自配置)'}"
-    )  # V3.8 改进日志
+        f"   [附件格式 (Attach)]: {attach_format} {'(来自命令行)' if args.attach_format and args.attach_format != 'html' else '(来自配置)'}"
+    )
     logger.info("=" * 50)
 
     # --- (V3.4) AI 实例创建 (核心修改) ---
     ai_service = None
     if not no_ai:
         try:
-            # (V3.4) 创建 AI 实例 (现在传入 provider_id)
-            # 工厂函数 (get_llm_provider) 在 AIService 内部被调用
-            # 如果 API 密钥缺失或供应商无效，这里将引发 ValueError
             ai_service = AIService(cfg, provider_id=provider_id)
         except (ValueError, ImportError) as e:
-            # (V3.4) 捕获来自工厂的配置错误
             logger.error(f"❌ (V3.4) AI 服务初始化失败: {e}")
-            logger.error(
-                "   请检查您的 .env 文件是否已正确配置 (例如 GEMINI_API_KEY 或 DEEPSEEK_API_KEY)。"
-            )
+            logger.error("   请检查您的 .env 文件是否已正确配置。")
             logger.error("   将以 --no-ai 模式继续...")
             no_ai = True  # 强制进入 no-ai 模式
 
@@ -218,7 +232,7 @@ def main_flow(args: argparse.Namespace):
     # 5. "Map" 阶段 (V3.3 保持不变, ai_service 内部已重构)
     ai_diff_summary = None
     if not no_ai and ai_service:
-        logger.info("🤖 真正启动 AI 'Map' 阶段 (逐条总结 Diff)...")
+        logger.info("🤖 正在启动 AI 'Map' 阶段 (逐条总结 Diff)...")
         diff_summaries_list = []
         for commit in commits:
             if commit.is_merge_commit:
@@ -226,7 +240,6 @@ def main_flow(args: argparse.Namespace):
                 continue
             diff_content = git_utils.get_commit_diff(cfg, commit.hash)
             if diff_content:
-                # (V3.4) 此处调用不变，但 ai_service 内部已解耦
                 single_summary = ai_service.get_single_diff_summary(diff_content)
                 if single_summary:
                     diff_summaries_list.append(
@@ -243,7 +256,6 @@ def main_flow(args: argparse.Namespace):
     # 6. "Reduce" 阶段 (V3.3 保持不变, ai_service 内部已重构)
     ai_summary = None
     if not no_ai and ai_service:
-        # (V3.4) 此处调用不变，但 ai_service 内部已解耦
         ai_summary = ai_service.get_ai_summary(
             text_report, ai_diff_summary, previous_summary
         )
@@ -253,7 +265,7 @@ def main_flow(args: argparse.Namespace):
     html_filename_full_path = report_builder.save_html_report(html_content, cfg)
 
     # 8. 更新“记忆”系统 (V3.3 保持不变, ai_service 内部已重构)
-    if ai_summary and ai_service:  # (V3.4) 确保 ai_service 存在
+    if ai_summary and ai_service:
         log_file_path = os.path.join(cfg.PROJECT_DATA_PATH, cfg.PROJECT_LOG_FILE)
         try:
             log_entry = {
@@ -266,7 +278,6 @@ def main_flow(args: argparse.Namespace):
                 f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
             logger.info(f"✅ 成功追加到项目日志 ({log_file_path})")
 
-            # (V3.4) 此处调用不变，但 ai_service 内部已解耦
             new_compressed_memory = ai_service.distill_project_memory()
             if new_compressed_memory:
                 memory_write_path = os.path.join(
@@ -287,28 +298,20 @@ def main_flow(args: argparse.Namespace):
     article_full_path = None
     # --- (V3.7-MD) 结束 ---
 
-    # 9. 风格转换 (V3.8 使用合并后的 'style' 和 'email' 变量)
+    # 9. 风格转换 (V3.9 使用合并后的 'style' 和 'email' 变量)
     public_article = None
-    # [V3.7 修改]
-    # 无论是否发送邮件，只要设置了 --attach-format pdf，都需要尝试生成
     needs_article = email and attach_format == "pdf"
 
-    # [V3.7 修改] 优化触发条件
-    # 1. 用户想发 PDF 附件
-    # 2. 或者用户 *没* 指定发邮件，但指定了 --style (V3.6 的原始行为，生成 md 文件)
     if (needs_article) or (not email and style != "default"):
         if ai_summary and previous_summary and not no_ai and ai_service:
-            logger.info(f"🤖 启动 V3.6 风格转换 (Style: {style})...")  # (V3.6) 更新日志
-
-            # (V3.6) 核心修改：将 style 传递下去
+            logger.info(f"🤖 启动 V3.6 风格转换 (Style: {style})...")
             public_article = ai_service.generate_public_article(
                 ai_summary,
                 previous_summary,
                 project_readme,
-                style=style,  # (V3.6) 新增 style 参数
+                style=style,
             )
             if public_article:
-                # (V3.6) 在文件名中包含风格
                 article_filename = (
                     f"PublicArticle_{style}_{datetime.now().strftime('%Y%m%d')}.md"
                 )
@@ -320,26 +323,24 @@ def main_flow(args: argparse.Namespace):
                         f.write(public_article)
                     logger.info(f"✅ 公众号文章 (Markdown) 已保存: {article_full_path}")
 
-                    # 仅在非邮件模式下打印预览 (V3.7)
                     if not email:
                         print("\n" + "=" * 50)
                         print(
                             f"📰 AI 生成的公众号文章 (风格: {style}) 预览 (已保存至 {article_full_path}):"
-                        )  # (V3.6)
+                        )
                         print("=" * 50)
                         print(public_article)
                 except Exception as e:
                     logger.error(f"❌ 保存公众号文章失败: {e}")
-                    article_full_path = None  # 保存失败
+                    article_full_path = None
         else:
             logger.warning(f"ℹ️ 无法生成风格文章 (缺少 AI 摘要或历史记忆)。")
 
-    # 10. 打印摘要到控制台 (V3.8 使用合并后的 'email' 变量)
-    # (V3.7) 如果是邮件模式，则跳过打印，以保持终端清洁
+    # 10. 打印摘要到控制台 (V3.9 使用合并后的 'email' 变量)
     if not email:
         print("\n" + "=" * 50)
         if ai_summary:
-            print(f"🤖 AI 工作摘要 (由 {provider_id} 生成):")  # (V3.4) 改进日志
+            print(f"🤖 AI 工作摘要 (由 {provider_id} 生成):")
             print("=" * 50)
             print(ai_summary)
         else:
@@ -348,7 +349,7 @@ def main_flow(args: argparse.Namespace):
             print(text_report)
         print("=" * 50)
 
-    # 11. 打印统计 (V3.8 使用合并后的 'email' 变量)
+    # 11. 打印统计 (V3.9 使用合并后的 'email' 变量)
     if not email:
         print("\n📊 代码变更统计:")
         print(f"   📈 新增行数: {stats['additions']}")
@@ -356,12 +357,12 @@ def main_flow(args: argparse.Namespace):
         print(f"   📁 修改文件: {stats['files_changed']} (详情已包含在报告中)")
         print(f"   👥 参与作者: {len(set(commit.author for commit in commits))}")
 
-    # 12. (可选) 打开浏览器 (V3.8 使用合并后的 'no_browser' 变量)
+    # 12. (可选) 打开浏览器 (V3.9 使用合并后的 'no_browser' 变量)
     if not no_browser:
         utils.open_report_in_browser(html_filename_full_path)
 
-    # 13. (可选) 发送邮件 (V3.8 使用合并后的 'email', 'attach_format' 变量)
-    if email:
+    # 13. (可选) 发送邮件 (V3.9 使用合并后的 'email', 'attach_format' 变量)
+    if email:  # [V3.9] email 现在是一个列表
         logger.info("准备发送邮件...")
         email_body_content = ai_summary if ai_summary else text_report
         if not ai_summary:
@@ -369,14 +370,13 @@ def main_flow(args: argparse.Namespace):
 
         # --- [V3.7-PDF] 核心修改：根据 attach_format 选择附件路径 ---
         attachment_to_send = None
-        pdf_full_path = None  # (V3.7-PDF)
+        pdf_full_path = None
 
         if attach_format == "pdf":
             logger.info(f"💌 附件格式: 'pdf'。")
-            if article_full_path:  # (V3.6 生成的 MD 路径)
+            if article_full_path:
                 logger.info(f"🤖 正在启动 V3.7 PDF 转换 (PrinceXML)...")
                 try:
-                    # 调用新模块
                     pdf_full_path = pdf_converter.convert_md_to_pdf(
                         article_full_path, cfg
                     )
@@ -392,10 +392,7 @@ def main_flow(args: argparse.Namespace):
                     )
                     attachment_to_send = html_filename_full_path
             else:
-                # 如果用户想要 pdf，但 md 文件没有（因为跳过了风格转换或 AI 失败）
-                logger.warning(
-                    f"⚠️ 附件格式: 'pdf'，但风格文章未生成 (article_full_path is None)。"
-                )
+                logger.warning(f"⚠️ 附件格式: 'pdf'，但风格文章未生成。")
                 logger.warning(f"   将回退发送 HTML 报告: {html_filename_full_path}")
                 attachment_to_send = html_filename_full_path
         else:
@@ -408,11 +405,12 @@ def main_flow(args: argparse.Namespace):
             logger.error("❌ 邮件发送失败：找不到任何附件文件 (HTML or PDF)。")
             email_success = False
         else:
+            # [V3.9] 调用更新后的 email_sender 函数
             email_success = email_sender.send_email_report(
                 cfg,
-                email,
+                email,  # [V3.9] email 是一个列表
                 email_body_content,
-                attachment_to_send,  # (V3.7) 传递选择后的路径
+                attachment_to_send,
             )
 
         if email_success:
@@ -427,16 +425,24 @@ def main_flow(args: argparse.Namespace):
 if __name__ == "__main__":
     # 1. 设置命令行参数解析
     parser = argparse.ArgumentParser(
-        description="Git 工作日报生成器 (V3.8)",  # [V3.8 修改]
+        description="Git 工作日报生成器 (V3.9)",  # [V3.9 修改]
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
-    # --- [V3.8] 新增/修改的参数 ---
+    # --- [V3.8/V3.9] 新增/修改的参数 ---
     parser.add_argument(
         "--configure",
         action="store_true",
         help="[V3.8] 运行交互式配置向导。\n" "   (需要 -r 指定要配置的仓库路径)",
     )
+
+    # [V3.9] 新增 cleanup 标志
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="[V3.9] 运行交互式项目清理向导。\n" "   (需要 -p 或 -r 指定清理目标)",
+    )
+
     parser.add_argument(
         "-p",
         "--project",
@@ -447,9 +453,9 @@ if __name__ == "__main__":
         "-r",
         "--repo-path",
         type=str,
-        default=None,  # [V3.8] 默认改为 None，因为需要与 -p 互斥检查
+        default=None,
         help="[V3.0] 指定要分析的 Git 仓库的根目录路径。\n"
-        "   (用于 --configure 或直接运行未配置的项目)",
+        "   (用于 --configure, --cleanup 或直接运行未配置的项目)",
     )
 
     # --- (V3.2) 互斥参数组 (V3.3 保持不变) ---
@@ -481,7 +487,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--style",
         type=str,
-        default=None,  # [V3.8] 改为 None
+        default=None,
         help="[V3.6] (覆盖) 指定公众号文章的风格。\n"
         "例如: 'default', 'novel', 'anime'。 \n"
         "(默认: 使用项目 config.json 中的设置)",
@@ -491,7 +497,7 @@ if __name__ == "__main__":
         "--attach-format",
         type=str,
         choices=["html", "pdf"],
-        default=None,  # [V3.8] 改为 None
+        default=None,
         help="[V3.7] (覆盖) (与 -e 连用) 指定邮件的附件格式。\n"
         "'html': 发送 GitReport_....html\n"
         "'pdf': (实验性) 将风格文章转为 PDF (需安装 PrinceXML) \n"
@@ -502,8 +508,8 @@ if __name__ == "__main__":
         "-e",
         "--email",
         type=str,
-        default=None,  # [V3.8] 改为 None
-        help="[V3.8] (覆盖) 报告生成后发送邮件到指定地址。\n"
+        default=None,
+        help="[V3.9] (覆盖) 接收邮箱 (多个请用逗号,分隔)。\n"
         "(默认: 使用项目 config.json 中的设置)",
     )
 

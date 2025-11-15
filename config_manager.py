@@ -1,14 +1,18 @@
 # config_manager.py
 """
-[V3.8] 配置管理器
-- 负责处理全局项目别名 (projects.json)
-- 负责处理项目级默认配置 (config.json)
-- 包含一个交互式向导 (run_interactive_config_wizard)
+[V3.9] 配置管理器
+- [V3.9] 新增 run_interactive_cleanup_wizard 用于项目清理
+- [V3.9] 更新 run_interactive_config_wizard 以支持邮件列表
+- [V3.8] 负责处理全局项目别名 (projects.json)
+- [V3.8] 负责处理项目级默认配置 (config.json)
+- [V3.8] 包含一个交互式向导 (run_interactive_config_wizard)
 """
 
 import os
 import json
 import logging
+import shutil
+import glob
 from typing import Dict, Any, Optional
 
 # 导入配置以获取基础路径
@@ -97,9 +101,9 @@ def _input_with_default(prompt: str, default: str) -> str:
 
 def run_interactive_config_wizard(data_root_path: str, repo_path: str):
     """
-    (V3.8) 运行交互式配置向导
+    (V3.9) 运行交互式配置向导 (更新支持邮件列表)
     """
-    logger.info("--- 🚀 欢迎使用 DevLog-AIGC V3.8 配置向导 ---")
+    logger.info("--- 🚀 欢迎使用 DevLog-AIGC V3.9 配置向导 ---")
     repo_path_abs = os.path.abspath(repo_path)
     if not os.path.isdir(repo_path_abs):
         logger.error(f"路径 {repo_path_abs} 不是一个有效的目录。")
@@ -137,9 +141,20 @@ def run_interactive_config_wizard(data_root_path: str, repo_path: str):
         "  默认文章风格 (default, novel, anime, etc.)",
         current_config.get("default_style", "default"),
     )
-    config_data["default_email"] = _input_with_default(
-        "  默认接收邮箱 (留空=不发送)", current_config.get("default_email", "")
+
+    # --- [V3.9] 邮件群发更新 ---
+    current_emails = current_config.get("default_email", [])  # 现在是列表
+    default_email_str = ", ".join(current_emails)  # 转为逗号分隔的字符串以便编辑
+
+    email_str = _input_with_default(
+        "  默认接收邮箱 (多个请用逗号,分隔)", default_email_str
     )
+    # 转换回列表
+    config_data["default_email"] = [
+        e.strip() for e in email_str.split(",") if e.strip()
+    ]
+    # --- [V3.9] 更新结束 ---
+
     config_data["default_attach_format"] = _input_with_default(
         "  默认附件格式 (html, pdf)",
         current_config.get("default_attach_format", "html"),
@@ -150,3 +165,95 @@ def run_interactive_config_wizard(data_root_path: str, repo_path: str):
 
     print("\n--- ✅ 配置完成！ ---")
     print(f"  现在你可以使用 'python GitReport.py -p {alias}' 来运行报告。")
+
+
+def run_interactive_cleanup_wizard(
+    data_root_path: str, project_data_path: str, repo_path: str, alias: Optional[str]
+):
+    """
+    (V3.9) 运行交互式清理向导
+    """
+    logger.warning(f"--- ⚠️ (V3.9) 项目清理向导 ---")
+    logger.warning(f"  [项目]: {alias or 'N/A'}")
+    logger.warning(f"  [路径]: {repo_path}")
+    logger.warning(f"  [数据]: {project_data_path}")
+
+    if not os.path.exists(project_data_path):
+        logger.error(f"❌ 数据目录 {project_data_path} 不存在，无需清理。")
+        return
+
+    print("\n请选择要执行的清理操作：")
+    print("  1. [缓存清理]：")
+    print("     - 删除所有生成的报告 (HTML/MD/PDF)")
+    print("     - 删除 AI 记忆 (project_log.jsonl, project_memory.md)")
+    print("     - (保留 config.json 和全局别名)")
+    print("  2. [彻底重置] (危险)：")
+    print("     - 删除上述所有缓存文件。")
+    print("     - 删除此项目的配置 (config.json)。")
+    print("     - 从全局 (projects.json) 中移除此项目别名。")
+    print("  3. [取消]")
+
+    choice = input("请输入选项 (1, 2, 3): ")
+
+    if choice == "1":
+        logger.info("正在执行 [缓存清理]...")
+        files_to_delete = []
+        files_to_delete.extend(glob.glob(os.path.join(project_data_path, "*.html")))
+        files_to_delete.extend(glob.glob(os.path.join(project_data_path, "*.md")))
+        files_to_delete.extend(glob.glob(os.path.join(project_data_path, "*.pdf")))
+        files_to_delete.extend(glob.glob(os.path.join(project_data_path, "*.jsonl")))
+
+        for f in files_to_delete:
+            # 确保不删除 config.json 和 memory.md (V3.9 修正：memory.md 应该被删除)
+            if os.path.basename(f) == "project_memory.md":
+                # V3.9：memory.md 属于 AI 记忆，也应删除
+                pass
+            elif os.path.basename(f) == CONFIG_JSON_FILE:
+                continue
+
+            try:
+                os.remove(f)
+                logger.info(f"   - 已删除: {os.path.basename(f)}")
+            except Exception as e:
+                logger.error(f"   - 删除失败: {os.path.basename(f)}, 错误: {e}")
+
+        # 单独处理 memory.md
+        memory_file = os.path.join(project_data_path, "project_memory.md")
+        if os.path.exists(memory_file):
+            try:
+                os.remove(memory_file)
+                logger.info(f"   - 已删除: project_memory.md")
+            except Exception as e:
+                logger.error(f"   - 删除失败: project_memory.md, 错误: {e}")
+
+        logger.info("✅ 缓存清理完成。")
+
+    elif choice == "2":
+        logger.warning("！！！执行 [彻底重置] 操作 ！！！")
+        confirm = input(
+            f"  这将删除整个 {project_data_path} 目录并移除别名 '{alias}'。\n"
+            "  此操作不可撤销！\n"
+            "  请输入 'yes' 确认: "
+        )
+        if confirm.lower() == "yes":
+            try:
+                shutil.rmtree(project_data_path)
+                logger.info(f"✅ 已删除项目数据目录: {project_data_path}")
+            except Exception as e:
+                logger.error(f"❌ 删除数据目录失败: {e}")
+
+            if alias:
+                try:
+                    aliases = load_project_aliases(data_root_path)
+                    if alias in aliases:
+                        del aliases[alias]
+                        save_project_aliases(data_root_path, aliases)
+                        logger.info(f"✅ 已从 {PROJECTS_JSON_FILE} 中移除别名: {alias}")
+                except Exception as e:
+                    logger.error(f"❌ 移除别名失败: {e}")
+            logger.info("✅ 项目已彻底重置。")
+        else:
+            logger.info("已取消重置操作。")
+
+    else:
+        logger.info("已取消清理。")

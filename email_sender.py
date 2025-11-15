@@ -1,8 +1,9 @@
 # email_sender.py
 import logging
 import sys
-import os  # (V3.7) 导入 os 以获取文件名
+import os
 from datetime import datetime
+from typing import List  # [V3.9] 导入 List
 from config import GitReportConfig
 
 try:
@@ -16,12 +17,15 @@ logger = logging.getLogger(__name__)
 
 def send_email_report(
     config: GitReportConfig,
-    recipient_email: str,
+    recipient_emails: List[str],  # [V3.9] 签名从 str 变为 List[str]
     ai_summary: str,
-    attachment_path: str,  # (V3.7) 重命名此参数
+    attachment_path: str,
 ) -> bool:
-    """(V1.2) 使用 yagmail 发送邮件"""
-    logger.info(f"📬 正在准备发送邮件至: {recipient_email} (使用 yagmail)")
+    """(V3.9) 使用 yagmail 发送邮件 (支持多收件人)"""
+
+    # [V3.9] 更新日志以显示所有收件人
+    recipient_str = ", ".join(recipient_emails)
+    logger.info(f"📬 正在准备发送邮件至: {recipient_str} (使用 yagmail)")
 
     try:
         yag = yagmail.SMTP(
@@ -32,9 +36,6 @@ def send_email_report(
         )
 
         subject = f"Git 工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
-
-        # (V3.7) 动态获取附件名，使邮件正文更准确
-        # (V3.7-PDF) 此处无需修改，basename 会自动处理 .html 或 .pdf
         attachment_filename = os.path.basename(attachment_path)
 
         html_body = f"""
@@ -51,13 +52,13 @@ def send_email_report(
         """
 
         yag.send(
-            to=recipient_email,
+            to=recipient_emails,  # [V3.9] yagmail 原生支持列表
             subject=subject,
             contents=html_body,
-            attachments=attachment_path,  # (V3.7) 使用重命名后的参数
+            attachments=attachment_path,
         )
         logger.info(
-            f"✅ 邮件已成功发送至 {recipient_email} (附件: {attachment_filename})"
+            f"✅ 邮件已成功发送至 {recipient_str} (附件: {attachment_filename})"
         )
         return True
 
