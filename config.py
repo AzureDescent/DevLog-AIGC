@@ -14,29 +14,32 @@ else:
     print("⚠️ (V3.0) 未在脚本目录找到 .env，尝试从 CWD 加载。")
 
 
-class GitReportConfig:
-    """Git报告配置参数类"""
+class GlobalConfig:
+    """
+    (V4.0) Git报告的全局应用配置。
+    只包含从 .env 加载的密钥和应用级常量。
+    不包含任何运行时状态。
+    """
 
-    # --- (V3.0 & V3.1) 路径配置 (V3.3 保持不变) ---
+    # --- (V3.0 & V3.1) 路径配置 (V4.0 重构) ---
     SCRIPT_BASE_PATH: str = SCRIPT_BASE_PATH
-    REPO_PATH: str = "."
     DATA_ROOT_DIR_NAME: str = "data"
-    PROJECT_DATA_PATH: str = ""
+    # 移除了: REPO_PATH, PROJECT_DATA_PATH (现在在 RunContext 中)
 
-    # --- (V3.2) 范围参数 (V3.3 保持不变) ---
-    TIME_RANGE_DESCRIPTION: str = "1 day ago"
-    COMMIT_RANGE_ARG: str = '--since="1 day ago"'
+    # --- (V3.2) 范围参数 (V4.0 重构) ---
+    # 移除了: TIME_RANGE_DESCRIPTION, COMMIT_RANGE_ARG (现在在 RunContext 中)
+    # 保留了: Git 命令格式字符串 (作为常量)
     GIT_LOG_FORMAT = 'git log {commit_range_arg} --graph --pretty=format:"%h|%d|%s|%cr|%an" --abbrev-commit'
     GIT_STATS_FORMAT = 'git log {commit_range_arg} --numstat --pretty=format:""'
     GIT_COMMIT_DIFF_FORMAT = 'git show {commit_hash} --pretty="" --no-color'
 
-    # V2.2 记忆文件 (文件名保持相对，我们将用 SCRIPT_BASE_PATH 组合)
+    # V2.2 记忆文件 (V4.0 保持不变)
     PROJECT_LOG_FILE: str = "project_log.jsonl"
     PROJECT_MEMORY_FILE: str = "project_memory.md"
     OUTPUT_FILENAME_PREFIX = "GitReport"
     AI_CACHE_FILENAME: str = ".ai_summary_cache.md"
 
-    # --- V3.3 智能过滤 ---
+    # --- V3.3 智能过滤 (V4.0 保持不变) ---
     FILTER_FILE_PATTERNS: list[str] = [
         "*.lock",
         "package-lock.json",
@@ -74,28 +77,24 @@ class GitReportConfig:
     ]
 
     # =================================================================
-    # --- (V3.4) AI 供应商配置 (核心修改) ---
+    # --- (V3.4) AI 供应商配置 (V4.0 保持不变) ---
     # =================================================================
 
     # 1. 供应商 API 密钥
-    # (V3.4 重命名) 确保你的 .env 文件使用 GEMINI_API_KEY
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    # (V3.4 新增) 确保你的 .env 文件使用 DEEPSEEK_API_KEY
     DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
 
     # 2. 供应商特定配置
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
 
     # 3. 应用程序默认值
-    # (V3.4 新增) 允许在 .env 中设置 DEFAULT_LLM, 默认为 "gemini"
     DEFAULT_LLM: str = os.getenv("DEFAULT_LLM", "gemini").lower()
 
-    # (V3.4 新增) 供应商的默认模型
-    # (匹配 V3.3 ai_summarizer.py 的硬编码 "gemini-2.5-flash")
+    # 4. 供应商的默认模型
     DEFAULT_MODEL_GEMINI: str = "gemini-2.5-flash"
     DEFAULT_MODEL_DEEPSEEK: str = "deepseek-chat"
 
-    # (V3.4 新增) 供应商配置验证辅助函数
+    # 5. (V3.4 新增) 供应商配置验证辅助函数
     def is_provider_configured(self, provider: str) -> bool:
         """
         检查特定供应商是否已在环境中设置其 API 密钥。

@@ -16,7 +16,9 @@ except ImportError:
     pass
 
 from llm.provider_abc import LLMProvider
-from config import GitReportConfig
+
+# (V4.0) 导入 GlobalConfig
+from config import GlobalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -26,22 +28,26 @@ class GeminiProvider(LLMProvider):
     (V3.5) Gemini 策略实现。
     """
 
-    def __init__(self, config: GitReportConfig):
+    def __init__(self, global_config: GlobalConfig):
         """
-        (V3.5) 初始化 Gemini 客户端 (genai.Client) 并加载 Gemini 专用提示词。
+        (V4.0) 初始化 Gemini 客户端 (genai.Client) 并加载 Gemini 专用提示词。
+        - 接收 GlobalConfig
         """
-        self.config = config
-        if not self.config.GEMINI_API_KEY:
+        self.global_config = global_config  # (V4.0)
+        if not self.global_config.GEMINI_API_KEY:  # (V4.0)
             logger.error("❌ (V3.4) GEMINI_API_KEY 未设置。请检查您的 .env 文件。")
             raise ValueError("GEMINI_API_KEY 未设置。")
 
         try:
-            self.client = genai.Client(api_key=self.config.GEMINI_API_KEY)
-            self.default_model = self.config.DEFAULT_MODEL_GEMINI
+            # (V4.0)
+            self.client = genai.Client(api_key=self.global_config.GEMINI_API_KEY)
+            self.default_model = self.global_config.DEFAULT_MODEL_GEMINI  # (V4.0)
 
             # (V3.6) 加载 Gemini 专用提示词 (现在使用递归加载)
             self.prompts = self._load_prompts_from_dir(
-                os.path.join(self.config.SCRIPT_BASE_PATH, "prompts", "gemini")
+                os.path.join(
+                    self.global_config.SCRIPT_BASE_PATH, "prompts", "gemini"
+                )  # (V4.0)
             )
 
             logger.info(

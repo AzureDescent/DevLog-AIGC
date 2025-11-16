@@ -12,27 +12,24 @@ import markdown
 import subprocess  # <--- [V3.7 修正] 导入 subprocess
 from typing import Optional
 
-# (V3.7) 导入 SCRIPT_BASE_PATH 用于定位 CSS
-from config import GitReportConfig, SCRIPT_BASE_PATH
+# (V4.0) 导入 RunContext
+from context import RunContext
 
 logger = logging.getLogger(__name__)
 
 
-def convert_md_to_pdf(article_md_path: str, config: GitReportConfig) -> Optional[str]:
+def convert_md_to_pdf(article_md_path: str, context: RunContext) -> Optional[str]:
     """
-    将 Markdown 文件转换为 PDF。
-
-    Args:
-        article_md_path (str): V3.6 生成的 PublicArticle_*.md 文件的完整路径。
-        config (GitReportConfig): 配置对象 (未使用，但为未来扩展保留)。
-
-    Returns:
-        Optional[str]: 成功则返回 PDF 文件的路径，失败则返回 None。
+    (V4.0 重构) 将 Markdown 文件转换为 PDF。
+    - 接收 RunContext
     """
 
     try:
         # 1. 定义路径
-        css_path = os.path.join(SCRIPT_BASE_PATH, "templates", "pdf_style.css")
+        # (V4.0) 从 global_config 获取 SCRIPT_BASE_PATH
+        css_path = os.path.join(
+            context.global_config.SCRIPT_BASE_PATH, "templates", "pdf_style.css"
+        )
         pdf_output_path = article_md_path.replace(".md", ".pdf")
 
         # 2. 检查 CSS

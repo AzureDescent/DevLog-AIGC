@@ -2,7 +2,10 @@
 import logging
 import sys
 from typing import Optional
-from config import GitReportConfig
+
+# (V4.0) 导入 GlobalConfig 和 RunContext
+from config import GlobalConfig
+from context import RunContext
 import os
 
 # (V3.4) 导入抽象层和具体策略
@@ -20,24 +23,27 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# --- (V3.4) 工厂函数 (V3.5 保持不变) ---
-def get_llm_provider(provider_id: str, config: GitReportConfig) -> LLMProvider:
+# --- (V3.4) 工厂函数 (V4.0 重构) ---
+def get_llm_provider(provider_id: str, global_config: GlobalConfig) -> LLMProvider:
     """
-    (V3.4) 工厂函数，根据 provider_id 选择并实例化正确的 LLM 供应商。
+    (V4.0) 工厂函数，根据 provider_id 选择并实例化正确的 LLM 供应商。
+    现在接收 GlobalConfig。
     """
     logger.info(f"ℹ️ (V3.4) 正在尝试初始化 LLM 供应商: {provider_id}")
 
-    if not config.is_provider_configured(provider_id):
+    # (V4.0) 使用 global_config
+    if not global_config.is_provider_configured(provider_id):
         logger.error(f"❌ (V3.4) 供应商 '{provider_id}' 未配置。")
         raise ValueError(
             f"供应商 '{provider_id}' 未配置。 "
             f"请在您的 .env 文件中设置相应的 API 密钥。"
         )
     try:
+        # (V4.0) 将 global_config 传递给 Provider
         if provider_id == "gemini":
-            return GeminiProvider(config)
+            return GeminiProvider(global_config)
         elif provider_id == "deepseek":
-            return DeepSeekProvider(config)
+            return DeepSeekProvider(global_config)
 
         logger.error(f"❌ (V3.4) 未知的 LLM 供应商: {provider_id}")
         raise ValueError(f"未知的 LLM 供应商: {provider_id}")
@@ -52,20 +58,25 @@ def get_llm_provider(provider_id: str, config: GitReportConfig) -> LLMProvider:
         raise
 
 
-# --- (V3.5) AIService (上下文) ---
+# --- (V3.5) AIService (V4.0 重构) ---
 class AIService:
     """
-    (V3.5 重构) 封装所有对 LLM 的调用。
-    - 提示词加载逻辑已移至 Provider。
-    - AIService 只负责传递*原始数据*。
+    (V4.0 重构) 封装所有对 LLM 的调用。
+    - 由 RunContext 初始化。
+    - 将 GlobalConfig 传递给 LLMProvider。
     """
 
-    def __init__(self, config: GitReportConfig, provider_id: str):
+    def __init__(self, context: RunContext):
         """
-        (V3.4) 初始化 AI 服务
+        (V4.0) 初始化 AI 服务
+        - 接收 RunContext
         """
-        self.config = config
-        self.provider: LLMProvider = get_llm_provider(provider_id, config)
+        self.context = context
+        self.global_config = context.global_config
+        # (V4.0) 从 context 获取 llm_id，并将 global_config 传递给工厂
+        self.provider: LLMProvider = get_llm_provider(
+            context.llm_id, self.global_config
+        )
         logger.info(
             f"✅ 🤖 AI 服务已成功初始化 (Provider: {self.provider.__class__.__name__})"
         )
@@ -116,12 +127,14 @@ class AIService:
 
     def distill_project_memory(self) -> Optional[str]:
         """
-        (V3.5 重构) 委托 Provider 蒸馏记忆。
+        (V4.0 重构) 委托 Provider 蒸馏记忆。
+        - (V4.0) 使用 context 和 global_config 获取路径
         """
         logger.info("🧠 正在启动 AI '记忆蒸馏' 阶段...")
 
+        # (V4.0) 使用 context.project_data_path 和 global_config.PROJECT_LOG_FILE
         log_file_path = os.path.join(
-            self.config.PROJECT_DATA_PATH, self.config.PROJECT_LOG_FILE
+            self.context.project_data_path, self.global_config.PROJECT_LOG_FILE
         )
         try:
             with open(log_file_path, "r", encoding="utf-8") as f:
@@ -149,19 +162,19 @@ class AIService:
         today_technical_summary: str,
         project_historical_memory: str,
         project_readme: Optional[str] = None,
-        style: str = "default"  # (V3.6) 接收来自 GitReport.py 的 style
+        style: str = "default",  # (V3.6) 接收来自 Orchestrator 的 style
     ) -> Optional[str]:
         """
         (V3.6 重构) 委托 Provider 生成公众号文章。
         """
-        logger.info(f"✍️ 正在启动 AI '风格转换' 阶段 (Style: {style})...") # (V3.6)
+        logger.info(f"✍️ 正在启动 AI '风格转换' 阶段 (Style: {style})...")  # (V3.6)
         try:
             # (V3.6) 将 style 透传给 provider
             return self.provider.generate_article(
                 today_technical_summary,
                 project_historical_memory,
                 project_readme,
-                style=style
+                style=style,
             )
         except Exception as e:
             logger.error(f"❌ (V3.6) generate_public_article (style={style}) 失败: {e}")

@@ -6,8 +6,9 @@ from models import GitCommit
 import markdown
 import os
 
-# (V3.3) 导入 SCRIPT_BASE_PATH 用于定位模板
-from config import GitReportConfig, SCRIPT_BASE_PATH
+# (V4.0) 导入 GlobalConfig 和 RunContext
+from config import GlobalConfig
+from context import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +53,13 @@ def generate_text_report(commits: List[GitCommit], stats: Dict[str, Any]) -> str
     return "\n".join(lines)
 
 
-def get_css_styles() -> str:
+def get_css_styles(global_config: GlobalConfig) -> str:
     """
-    (V3.3 修改)
+    (V4.0 重构)
     返回CSS样式 - 从 templates/styles.css 文件读取
+    - 接收 GlobalConfig 来定位 SCRIPT_BASE_PATH
     """
-    css_path = os.path.join(SCRIPT_BASE_PATH, "templates", "styles.css")
+    css_path = os.path.join(global_config.SCRIPT_BASE_PATH, "templates", "styles.css")
     try:
         with open(css_path, "r", encoding="utf-8") as f:
             return f.read()
@@ -202,14 +204,18 @@ def generate_html_report(
     commits: List[GitCommit],
     stats: Dict[str, Any],
     ai_summary: Optional[str],
+    global_config: GlobalConfig,  # (V4.0) 接收 GlobalConfig
 ) -> str:
     """
-    (V3.3 修改)
+    (V4.0 重构)
     生成HTML格式的可视化报告 - 从 templates/report.html.tpl 加载骨架
+    - 接收 GlobalConfig
     """
 
-    # (V3.3) 从文件加载 HTML 模板
-    tpl_path = os.path.join(SCRIPT_BASE_PATH, "templates", "report.html.tpl")
+    # (V4.0) 使用 global_config
+    tpl_path = os.path.join(
+        global_config.SCRIPT_BASE_PATH, "templates", "report.html.tpl"
+    )
     try:
         with open(tpl_path, "r", encoding="utf-8") as f:
             html_template = f.read()
@@ -223,7 +229,7 @@ def generate_html_report(
     # (V3.3) 注入内容到模板
     return html_template.format(
         title=f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}",
-        css=get_css_styles(),
+        css=get_css_styles(global_config),  # (V4.0) 传递 global_config
         header=generate_html_header(),
         ai_summary_section=generate_html_ai_summary(ai_summary),
         stats_section=generate_html_stats(commits, stats),
@@ -231,16 +237,17 @@ def generate_html_report(
     )
 
 
-def save_html_report(html_content: str, config: GitReportConfig) -> Optional[str]:
+def save_html_report(html_content: str, context: RunContext) -> Optional[str]:
     """
-    (V3.1 修改) 保存HTML报告到文件
-    - 使用 config.PROJECT_DATA_PATH 组合完整路径
+    (V4.0 重构) 保存HTML报告到文件
+    - 接收 RunContext
     """
-    filename = f"{config.OUTPUT_FILENAME_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    # (V4.0) 从 global_config 获取前缀
+    filename = f"{context.global_config.OUTPUT_FILENAME_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
 
-    # --- (V3.1) 核心修改 ---
-    # 使用项目专属路径，而不是 V3.0 的脚本根路径
-    full_path = os.path.join(config.PROJECT_DATA_PATH, filename)
+    # --- (V4.0) 核心修改 ---
+    # (V4.0) 从 context 获取 project_data_path
+    full_path = os.path.join(context.project_data_path, filename)
 
     try:
         with open(full_path, "w", encoding="utf-8") as f:

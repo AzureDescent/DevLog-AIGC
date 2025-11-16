@@ -16,7 +16,9 @@ except ImportError:
     pass
 
 from llm.provider_abc import LLMProvider
-from config import GitReportConfig
+
+# (V4.0) 导入 GlobalConfig
+from config import GlobalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -26,25 +28,28 @@ class DeepSeekProvider(LLMProvider):
     (V3.5) DeepSeek 策略实现 (OpenAI 兼容)。
     """
 
-    def __init__(self, config: GitReportConfig):
+    def __init__(self, global_config: GlobalConfig):
         """
-        (V3.5) 初始化 DeepSeek 客户端并加载 DeepSeek 专用提示词。
+        (V4.0) 初始化 DeepSeek 客户端并加载 DeepSeek 专用提示词。
+        - 接收 GlobalConfig
         """
-        self.config = config
-        if not self.config.DEEPSEEK_API_KEY:
+        self.global_config = global_config  # (V4.0)
+        if not self.global_config.DEEPSEEK_API_KEY:  # (V4.0)
             logger.error("❌ (V3.4) DEEPSEEK_API_KEY 未设置。请检查您的 .env 文件。")
             raise ValueError("DEEPSEEK_API_KEY 未设置。")
 
         try:
             self.client = OpenAI(
-                api_key=self.config.DEEPSEEK_API_KEY,
-                base_url=self.config.DEEPSEEK_BASE_URL,
+                api_key=self.global_config.DEEPSEEK_API_KEY,  # (V4.0)
+                base_url=self.global_config.DEEPSEEK_BASE_URL,  # (V4.0)
             )
-            self.default_model = self.config.DEFAULT_MODEL_DEEPSEEK
+            self.default_model = self.global_config.DEFAULT_MODEL_DEEPSEEK  # (V4.0)
 
             # (V3.6) 加载 DeepSeek 专用提示词 (现在使用递归加载)
             self.prompts = self._load_prompts_from_dir(
-                os.path.join(self.config.SCRIPT_BASE_PATH, "prompts", "deepseek")
+                os.path.join(
+                    self.global_config.SCRIPT_BASE_PATH, "prompts", "deepseek"
+                )  # (V4.0)
             )
 
             # (V3.5) DeepSeek 需要一个 System Prompt (继续使用顶级的 system.txt)

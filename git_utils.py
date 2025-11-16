@@ -4,7 +4,9 @@ import re
 import logging
 import fnmatch
 from typing import Optional, List, Dict, Any
-from config import GitReportConfig
+
+# (V4.0) 导入 RunContext
+from context import RunContext
 from models import GitCommit, FileStat
 
 logger = logging.getLogger(__name__)
@@ -43,11 +45,15 @@ def run_git_command(
 
 
 # --- (新增) V2.0 START ---
-def get_commit_diff(config: GitReportConfig, commit_hash: str) -> Optional[str]:
-    """获取单个commit的diff内容"""
-    cmd = config.GIT_COMMIT_DIFF_FORMAT.format(commit_hash=commit_hash)
-    # --- (V3.0) 修改: 传入 config.REPO_PATH ---
-    return run_git_command(cmd, config.REPO_PATH, f"获取 {commit_hash} 的Diff")
+def get_commit_diff(context: RunContext, commit_hash: str) -> Optional[str]:
+    """
+    (V4.0 重构) 获取单个commit的diff内容
+    - 接收 RunContext
+    """
+    # (V4.0) 从 global_config 获取格式
+    cmd = context.global_config.GIT_COMMIT_DIFF_FORMAT.format(commit_hash=commit_hash)
+    # (V4.0) 从 context 获取 repo_path
+    return run_git_command(cmd, context.repo_path, f"获取 {commit_hash} 的Diff")
 
 
 # --- (新增) V2.0 END ---
@@ -72,13 +78,16 @@ def is_git_repository(repo_path: str) -> bool:
         return False
 
 
-def get_git_log(config: GitReportConfig) -> Optional[str]:
+def get_git_log(context: RunContext) -> Optional[str]:
     """
-    (修改) V3.2: 获取Git提交历史
-    - 使用 COMMIT_RANGE_ARG 替代 time_range
+    (V4.0 重构) 获取Git提交历史
+    - 接收 RunContext
     """
-    cmd = config.GIT_LOG_FORMAT.format(commit_range_arg=config.COMMIT_RANGE_ARG)
-    return run_git_command(cmd, config.REPO_PATH, "获取Git提交历史")
+    # (V4.0) 从 global_config 和 context 获取参数
+    cmd = context.global_config.GIT_LOG_FORMAT.format(
+        commit_range_arg=context.commit_range_arg
+    )
+    return run_git_command(cmd, context.repo_path, "获取Git提交历史")
 
 
 def parse_single_commit(line: str) -> Optional[GitCommit]:
@@ -122,10 +131,10 @@ def parse_git_log(log_output: str) -> List[GitCommit]:
     return commits
 
 
-def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
+def get_git_stats(context: RunContext) -> Dict[str, Any]:
     """
-    (修改) V3.2: 获取Git统计信息
-    - 使用 COMMIT_RANGE_ARG 替代 time_range
+    (V4.0 重构) 获取Git统计信息
+    - 接收 RunContext
     """
     stats = {
         "additions": 0,
@@ -134,17 +143,21 @@ def get_git_stats(config: GitReportConfig) -> Dict[str, Any]:
         "file_stats": [],
     }
 
-    cmd = config.GIT_STATS_FORMAT.format(commit_range_arg=config.COMMIT_RANGE_ARG)
+    # (V4.0) 从 global_config 和 context 获取参数
+    cmd = context.global_config.GIT_STATS_FORMAT.format(
+        commit_range_arg=context.commit_range_arg
+    )
     output = run_git_command(
         cmd,
-        config.REPO_PATH,
+        context.repo_path,
         "获取Git统计信息",
     )
     if not output:
         return stats
 
     file_changes: Dict[str, FileStat] = {}
-    patterns = config.FILTER_FILE_PATTERNS
+    # (V4.0) 从 global_config 获取常量
+    patterns = context.global_config.FILTER_FILE_PATTERNS
 
     try:
         for line in output.strip().split("\n"):

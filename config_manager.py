@@ -15,8 +15,8 @@ import shutil
 import glob
 from typing import Dict, Any, Optional
 
-# 导入配置以获取基础路径
-from config import GitReportConfig
+# (V4.0) 导入 GlobalConfig
+from config import GlobalConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,8 @@ CONFIG_JSON_FILE = "config.json"
 
 
 def _get_data_root_path() -> str:
-    """(V3.8) 辅助函数：获取 data 根目录的路径"""
-    cfg = GitReportConfig()
+    """(V4.0) 辅助函数：获取 data 根目录的路径"""
+    cfg = GlobalConfig()  # (V4.0)
     return os.path.join(cfg.SCRIPT_BASE_PATH, cfg.DATA_ROOT_DIR_NAME)
 
 

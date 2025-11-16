@@ -4,7 +4,9 @@ import sys
 import os
 from datetime import datetime
 from typing import List  # [V3.9] 导入 List
-from config import GitReportConfig
+
+# (V4.0) 导入 RunContext
+from context import RunContext
 
 try:
     import yagmail
@@ -16,23 +18,24 @@ logger = logging.getLogger(__name__)
 
 
 def send_email_report(
-    config: GitReportConfig,
+    context: RunContext,  # (V4.0) 接收 RunContext
     recipient_emails: List[str],  # [V3.9] 签名从 str 变为 List[str]
     ai_summary: str,
     attachment_path: str,
 ) -> bool:
-    """(V3.9) 使用 yagmail 发送邮件 (支持多收件人)"""
+    """(V4.0) 使用 yagmail 发送邮件 (支持多收件人)"""
 
     # [V3.9] 更新日志以显示所有收件人
     recipient_str = ", ".join(recipient_emails)
     logger.info(f"📬 正在准备发送邮件至: {recipient_str} (使用 yagmail)")
 
     try:
+        # (V4.0) 从 context.global_config 获取 SMTP 设置
         yag = yagmail.SMTP(
-            user=config.SMTP_USER,
-            password=config.SMTP_PASSWORD,
-            host=config.SMTP_SERVER,
-            port=config.SMTP_PORT,
+            user=context.global_config.SMTP_USER,
+            password=context.global_config.SMTP_PASSWORD,
+            host=context.global_config.SMTP_SERVER,
+            port=context.global_config.SMTP_PORT,
         )
 
         subject = f"Git 工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
