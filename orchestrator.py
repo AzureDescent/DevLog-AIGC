@@ -1,6 +1,8 @@
 # orchestrator.py
 """
-[V4.0] 业务逻辑编排器
+[V4.4] 业务逻辑编排器
+- 集成 Context/Orchestrator 模式
+- [V4.3] 集成多渠道通知系统 (Notifiers)，移除 email_sender 强依赖
 """
 import logging
 import sys
@@ -17,7 +19,8 @@ from config import GlobalConfig
 from ai_summarizer import AIService
 import git_utils
 import report_builder
-import email_sender
+
+# import email_sender  <-- [已移除] 旧的邮件发送模块
 import pdf_converter
 import utils
 
@@ -41,24 +44,21 @@ class ReportOrchestrator:
     def run(self):
         """
         (V4.0) 执行核心业务流程。
-        这是从 V3.9 的 main_flow() 迁移而来的逻辑。
         """
 
-        # --- (V3.4) AI 实例创建 (V4.0 重构) ---
+        # --- 1. AI 实例创建 ---
         ai_service: Optional[AIService] = None
         if not self.context.no_ai:
             try:
-                # (V4.0) AIService 现在接收 RunContext
                 ai_service = AIService(self.context)
             except (ValueError, ImportError) as e:
                 logger.error(f"❌ (V3.4) AI 服务初始化失败: {e}")
                 logger.error("   请检查您的 .env 文件是否已正确配置。")
                 logger.error("   将以 --no-ai 模式继续...")
-                self.context.no_ai = True  # (V4.0) 更新上下文状态
+                self.context.no_ai = True
 
-        # --- (V3.0) 读取 README (V4.0 重构) ---
+        # --- 2. 读取 README ---
         project_readme = None
-        # (V4.0) 使用 context.repo_path
         readme_path = os.path.join(self.context.repo_path, "README.md")
         try:
             with open(readme_path, "r", encoding="utf-8") as f:
@@ -69,9 +69,8 @@ class ReportOrchestrator:
         except Exception as e:
             logger.error(f"❌ 读取 README.md 失败 ({readme_path}): {e}")
 
-        # --- (V3.1) 读取“压缩记忆” (V4.0 重构) ---
+        # --- 3. 读取“压缩记忆” ---
         previous_summary = None
-        # (V4.0) 使用 context.project_data_path 和 global_config
         memory_file_path = os.path.join(
             self.context.project_data_path, self.global_config.PROJECT_MEMORY_FILE
         )
@@ -86,39 +85,33 @@ class ReportOrchestrator:
             except Exception as e:
                 logger.error(f"❌ 加载压缩记忆失败 ({memory_file_path}): {e}")
 
-        # 2. 检查环境 (V4.0 重构)
-        # (V4.0) 使用 context.repo_path
+        # --- 4. 检查 Git 环境 ---
         if not git_utils.is_git_repository(self.context.repo_path):
             logger.error(f"❌ 指定路径不是Git仓库: {self.context.repo_path}")
             return
 
-        # 3. 获取和解析 Git 数据 (V4.0 重构)
-        # (V4.0) git_utils 函数现在接收 RunContext
+        # --- 5. 获取 Git 数据 ---
         log_output = git_utils.get_git_log(self.context)
         if not log_output:
             logger.error("❌ 未获取到Git提交记录")
-            # (V4.0) 使用 context.time_range_desc
             print(f"💡 提示: 在 '{self.context.time_range_desc}' 范围内可能没有提交。")
             return
 
         commits = git_utils.parse_git_log(log_output)
-        # (V4.0) git_utils 函数现在接收 RunContext
         stats = git_utils.get_git_stats(self.context)
         stats["total_commits"] = len(commits)
 
-        # 4. 生成报告 (V4.0 未变)
+        # --- 6. 生成文本报告 (基础数据) ---
         text_report = report_builder.generate_text_report(commits, stats)
 
-        # 5. "Map" 阶段 (V4.0 重构)
+        # --- 7. AI "Map" 阶段 (Diff 分析) ---
         ai_diff_summary = None
         if not self.context.no_ai and ai_service:
             logger.info("🤖 正在启动 AI 'Map' 阶段 (逐条总结 Diff)...")
             diff_summaries_list = []
             for commit in commits:
                 if commit.is_merge_commit:
-                    logger.info(f"    (跳过 Merge Commit: {commit.hash})")
                     continue
-                # (V4.0) git_utils 函数现在接收 RunContext
                 diff_content = git_utils.get_commit_diff(self.context, commit.hash)
                 if diff_content:
                     single_summary = ai_service.get_single_diff_summary(diff_content)
@@ -126,33 +119,31 @@ class ReportOrchestrator:
                         diff_summaries_list.append(
                             f"* {commit.hash} ({commit.author}): {single_summary}"
                         )
-                else:
-                    logger.warning(f"    (未能获取 {commit.hash} 的 Diff 内容)")
             if diff_summaries_list:
                 ai_diff_summary = "\n".join(diff_summaries_list)
                 logger.info("✅ AI 'Map' 阶段完成")
-            else:
-                logger.info("ℹ️ AI 'Map' 阶段未生成任何 Diff 摘要")
 
-        # 6. "Reduce" 阶段 (V4.0 未变)
+        # --- 8. AI "Reduce" 阶段 (日报汇总) ---
         ai_summary = None
         if not self.context.no_ai and ai_service:
             ai_summary = ai_service.get_ai_summary(
                 text_report, ai_diff_summary, previous_summary
             )
 
-        # 7. 生成 HTML 报告 (V4.0 重构)
+        # --- 9. 生成并保存 HTML 报告 ---
         html_content = report_builder.generate_html_report(
-            commits, stats, ai_summary, self.global_config  # (V4.0) 传入 global_config
+            commits, stats, ai_summary, self.global_config
         )
-        # (V4.0) report_builder 函数现在接收 RunContext
         html_filename_full_path = report_builder.save_html_report(
             html_content, self.context
         )
 
-        # 8. 更新“记忆”系统 (V4.0 重构)
+        if not html_filename_full_path:
+            logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
+            return
+
+        # --- 10. 更新“记忆”系统 ---
         if ai_summary and ai_service:
-            # (V4.0) 使用 context 和 global_config
             log_file_path = os.path.join(
                 self.context.project_data_path, self.global_config.PROJECT_LOG_FILE
             )
@@ -165,14 +156,12 @@ class ReportOrchestrator:
                 }
                 with open(log_file_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-                logger.info(f"✅ 成功追加到项目日志 ({log_file_path})")
 
-                # (V4.0) ai_service 内部已重构为使用 context
                 new_compressed_memory = ai_service.distill_project_memory()
                 if new_compressed_memory:
                     memory_write_path = os.path.join(
                         self.context.project_data_path,
-                        self.global_config.PROJECT_MEMORY_FILE,  # (V4.0)
+                        self.global_config.PROJECT_MEMORY_FILE,
                     )
                     with open(memory_write_path, "w", encoding="utf-8") as f:
                         f.write(new_compressed_memory)
@@ -180,36 +169,31 @@ class ReportOrchestrator:
             except Exception as e:
                 logger.error(f"❌ 更新记忆系统失败: {e}")
 
-        if not html_filename_full_path:
-            logger.error("❌ HTML 报告文件生成失败，中止后续操作。")
-            return
-
-        # 9. 风格转换 (V4.0 重构)
-        public_article = None
+        # --- 11. 风格转换 (Markdown 文章) ---
         article_full_path = None
-        # (V4.0) 使用 context
-        needs_article = self.context.email_list and self.context.attach_format == "pdf"
+        # 只要 style 不是默认，或者需要 PDF 附件，就生成文章
+        needs_article = (self.context.style != "default") or (
+            self.context.attach_format == "pdf"
+        )
 
-        if (needs_article) or (
-            not self.context.email_list and self.context.style != "default"
-        ):
+        if needs_article:
             if (
                 ai_summary
                 and previous_summary
                 and not self.context.no_ai
                 and ai_service
             ):
-                logger.info(f"🤖 启动 V3.6 风格转换 (Style: {self.context.style})...")
+                logger.info(f"🤖 启动风格转换 (Style: {self.context.style})...")
                 public_article = ai_service.generate_public_article(
                     ai_summary,
                     previous_summary,
                     project_readme,
-                    style=self.context.style,  # (V4.0)
+                    style=self.context.style,
                 )
                 if public_article:
                     article_filename = f"PublicArticle_{self.context.style}_{datetime.now().strftime('%Y%m%d')}.md"
                     article_full_path = os.path.join(
-                        self.context.project_data_path, article_filename  # (V4.0)
+                        self.context.project_data_path, article_filename
                     )
                     try:
                         with open(article_full_path, "w", encoding="utf-8") as f:
@@ -218,60 +202,49 @@ class ReportOrchestrator:
                             f"✅ 公众号文章 (Markdown) 已保存: {article_full_path}"
                         )
 
-                        if not self.context.email_list:  # (V4.0)
+                        # 仅当不发送邮件时才在控制台打印预览
+                        if not self.context.email_list:
                             print("\n" + "=" * 50)
-                            print(
-                                f"📰 AI 生成的公众号文章 (风格: {self.context.style}) 预览 (已保存至 {article_full_path}):"
-                            )
+                            print(f"📰 文章预览 ({self.context.style}):")
                             print("=" * 50)
                             print(public_article)
                     except Exception as e:
                         logger.error(f"❌ 保存公众号文章失败: {e}")
                         article_full_path = None
-            else:
-                logger.warning(f"ℹ️ 无法生成风格文章 (缺少 AI 摘要或历史记忆)。")
 
-        # 10. 打印摘要到控制台 (V4.0 重构)
-        if not self.context.email_list:  # (V4.0)
+        # --- 12. 打印摘要到控制台 (仅当不发邮件时) ---
+        if not self.context.email_list:
             print("\n" + "=" * 50)
             if ai_summary:
-                print(f"🤖 AI 工作摘要 (由 {self.context.llm_id} 生成):")  # (V4.0)
+                print(f"🤖 AI 工作摘要 (由 {self.context.llm_id} 生成):")
                 print("=" * 50)
                 print(ai_summary)
             else:
                 print("📄 原始文本报告 (AI未运行或生成失败):")
-                print("=" * 50)
                 print(text_report)
-            print("=" * 50)
 
-        # 11. 打印统计 (V4.0 重构)
-        if not self.context.email_list:  # (V4.0)
-            print("\n📊 代码变更统计:")
-            print(f"   📈 新增行数: {stats['additions']}")
-            print(f"   📉 删除行数: {stats['deletions']}")
-            print(f"   📁 修改文件: {stats['files_changed']} (详情已包含在报告中)")
-            print(f"   👥 参与作者: {len(set(commit.author for commit in commits))}")
+        # --- 13. 打印统计 ---
+        if not self.context.email_list:
+            print(
+                f"\n📊 新增: {stats['additions']} 行, 删除: {stats['deletions']} 行, 文件: {stats['files_changed']}"
+            )
 
-        # 12. (可选) 打开浏览器 (V4.0 重构)
-        if not self.context.no_browser:  # (V4.0)
+        # --- 14. 打开浏览器 ---
+        if not self.context.no_browser:
             utils.open_report_in_browser(html_filename_full_path)
 
-        # 13. [V4.3 重构] 多渠道通知分发
-        # 13.1 准备通知内容
-        notification_subject = f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
+        # =================================================================
+        # --- 15. [V4.3 重构] 多渠道通知分发 ---
+        # =================================================================
 
+        # 15.1 准备通知内容
+        notification_subject = f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
         # 优先使用 AI 摘要作为正文，如果没有则回退到文本报告
-        # 注意：如果是 HTML 邮件，EmailNotifier 会自己处理包装；
-        # 如果是文本消息（如飞书），可能需要纯文本。
-        # 这里我们传递最丰富的内容，由具体 Notifier 决定如何渲染。
         notification_content = ai_summary if ai_summary else text_report
 
-        # 13.2 准备附件 (PDF or HTML)
+        # 15.2 准备附件 (PDF or HTML)
         attachment_to_send = None
-        pdf_full_path = None
 
-        # 检查是否需要生成 PDF (仅当有通知渠道激活 且 指定了 pdf 格式时)
-        # 为了简单起见，我们先准备好所有可能的附件路径
         if self.context.attach_format == "pdf":
             if article_full_path:
                 logger.info(f"🤖 正在启动 PDF 转换 (用于附件发送)...")
@@ -290,24 +263,32 @@ class ReportOrchestrator:
             # 默认 HTML
             attachment_to_send = html_filename_full_path
 
-        # 13.3 加载并执行所有激活的通知器
-        # (V4.3) 导入工厂
-        from notifiers.factory import get_active_notifiers
+        # 15.3 加载并执行所有激活的通知器
+        try:
+            # [V4.3] 动态导入工厂，避免顶层 import 错误
+            from notifiers.factory import get_active_notifiers
 
-        active_notifiers = get_active_notifiers(self.context)
+            active_notifiers = get_active_notifiers(self.context)
 
-        if not active_notifiers:
-            logger.info("ℹ️ 没有激活任何通知渠道 (未配置邮箱或 Webhook)，跳过发送。")
-        else:
-            logger.info(f"🚀 开始通过 {len(active_notifiers)} 个渠道推送报告...")
-            for notifier in active_notifiers:
-                logger.info(f"   >> 正在调用: {notifier.name}")
-                success = notifier.send(
-                    subject=notification_subject,
-                    content=notification_content,
-                    attachment_path=attachment_to_send,
-                )
-                status_icon = "✅" if success else "❌"
-                print(
-                    f"[{status_icon} 推送结果] {notifier.name}: {'成功' if success else '失败'}"
-                )
+            if not active_notifiers:
+                logger.info("ℹ️ 没有激活任何通知渠道 (未配置邮箱或 Webhook)，跳过发送。")
+            else:
+                logger.info(f"🚀 开始通过 {len(active_notifiers)} 个渠道推送报告...")
+                for notifier in active_notifiers:
+                    logger.info(f"   >> 正在调用: {notifier.name}")
+                    success = notifier.send(
+                        subject=notification_subject,
+                        content=notification_content,
+                        attachment_path=attachment_to_send,
+                    )
+                    status_icon = "✅" if success else "❌"
+                    print(
+                        f"[{status_icon} 推送结果] {notifier.name}: {'成功' if success else '失败'}"
+                    )
+
+        except ImportError:
+            logger.error(
+                "❌ 无法导入 notifiers.factory。请确保 notifiers 目录存在且包含 __init__.py (或作为 namespace package)。"
+            )
+        except Exception as e:
+            logger.error(f"❌ 通知分发过程发生异常: {e}", exc_info=True)
