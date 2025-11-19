@@ -1,12 +1,17 @@
 # report_builder.py
+"""
+[V4.2] 报告生成器 - Jinja2 模板引擎重构版
+负责准备数据上下文，并调用 Jinja2 模板渲染 HTML。
+"""
 import logging
+import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from models import GitCommit
-import markdown
-import os
 
-# (V4.0) 导入 GlobalConfig 和 RunContext
+import markdown
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+from models import GitCommit
 from config import GlobalConfig
 from context import RunContext
 
@@ -14,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 def generate_text_report(commits: List[GitCommit], stats: Dict[str, Any]) -> str:
-    """生成文本格式的报告"""
+    """
+    生成纯文本格式的报告 (用于终端输出或邮件正文回退)。
+    (保留 V3.3 逻辑，未改动)
+    """
     lines = [
         "=" * 80,
         "                            Git工作汇总",
@@ -53,200 +61,82 @@ def generate_text_report(commits: List[GitCommit], stats: Dict[str, Any]) -> str
     return "\n".join(lines)
 
 
-def get_css_styles(global_config: GlobalConfig) -> str:
-    """
-    (V4.0 重构)
-    返回CSS样式 - 从 templates/styles.css 文件读取
-    - 接收 GlobalConfig 来定位 SCRIPT_BASE_PATH
-    """
+def _get_css_styles(global_config: GlobalConfig) -> str:
+    """读取 CSS 文件内容"""
     css_path = os.path.join(global_config.SCRIPT_BASE_PATH, "templates", "styles.css")
     try:
         with open(css_path, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        logger.error(f"❌ (V3.3) CSS 模板文件未找到: {css_path}")
+        logger.error(f"❌ CSS 模板文件未找到: {css_path}")
         return "/* CSS 模板文件未找到 */"
     except Exception as e:
-        logger.error(f"❌ (V3.3) 加载 CSS 模板失败: {e}")
+        logger.error(f"❌ 加载 CSS 模板失败: {e}")
         return f"/* 加载 CSS 模板失败: {e} */"
-
-
-def generate_html_header() -> str:
-    """生成HTML头部"""
-    return f"""
-        <div class="header">
-            <h1 style="color: #2c3e50; margin-bottom: 10px;">📊 Git工作日报</h1>
-            <p style="color: #7f8c8d; font-size: 1.1em;">生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        </div>
-    """
-
-
-def generate_html_stats(commits: List[GitCommit], stats: Dict[str, Any]) -> str:
-    """生成HTML统计部分和文件变更列表"""
-    authors = set(commit.author for commit in commits) if commits else set()
-
-    # 文件变更列表 HTML
-    file_list_html = ""
-    if stats.get("file_stats"):
-        file_list_html = """
-        <div class="file-list">
-            <h3 style="color: #667eea; margin-top: 0;">📁 文件变更详情 (合并统计)</h3>
-            <table class="file-table">
-                <thead>
-                    <tr>
-                        <th>文件名</th>
-                        <th>新增行数</th>
-                        <th>删除行数</th>
-                    </tr>
-                </thead>
-                <tbody>
-        """
-        for file_stat in stats["file_stats"]:
-            file_list_html += f"""
-                    <tr>
-                        <td>{file_stat.filename}</td>
-                        <td class="file-add">+{file_stat.additions}</td>
-                        <td class="file-del">-{file_stat.deletions}</td>
-                    </tr>
-            """
-        file_list_html += """
-                </tbody>
-            </table>
-        </div>
-        """
-
-    # 总统计信息 HTML
-    stats_html = f"""
-        <div class="stats">
-            <h2 style="margin: 0; color: white;">📈 统计信息</h2>
-            <p style="font-size: 1.2em; margin: 10px 0;">
-                今日提交数量: <strong style="font-size: 1.4em;">{len(commits)}</strong>
-            </p>
-            <p style="margin: 5px 0;">
-                涉及作者: <strong>{', '.join(authors) if authors else '无'}</strong>
-            </p>
-            <p style="margin: 5px 0;">
-                代码变更: <strong>+{stats['additions']} -{stats['deletions']}</strong> (修改文件: {stats['files_changed']})
-            </p>
-        </div>
-    """
-
-    # 将统计信息和文件列表合并返回
-    return stats_html + file_list_html
-
-
-def generate_html_commits(commits: List[GitCommit]) -> str:
-    """生成HTML提交列表"""
-    if not commits:
-        return """
-            <div class="empty-state">
-                <h3>📭 没有找到提交记录</h3>
-                <p>可能是以下原因：</p>
-                <ul style="text-align: left; display: inline-block;">
-                    <li>今天没有提交</li>
-                    <li>Git仓库路径不正确</li>
-                    <li>时间范围设置问题</li>
-                </ul>
-            </div>
-        """
-
-    # 按作者分组
-    authors_commits = {}
-    for commit in commits:
-        authors_commits.setdefault(commit.author, []).append(commit)
-
-    commits_html = '<h3 style="color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px;">📝 提交历史</h3>'
-
-    for author, author_commits in authors_commits.items():
-        commits_html += f"""
-            <div class="author-section">
-                <div class="author-header">👤 {author} ({len(author_commits)} 个提交)</div>
-        """
-
-        for i, commit in enumerate(author_commits, 1):
-            commits_html += f"""
-                <div class="commit">
-                    <span class="commit-number">{i}</span>
-                    <span class="graph">{commit.graph}</span>
-                    <span class="hash">{commit.hash}</span>
-                    <div class="message">{commit.message}</div>
-                    <div>
-                        <span class="time">🕒 {commit.time}</span>
-                        {f'| <span class="branch">🌿 {commit.branch}</span>' if commit.has_branch else ''}
-                    </div>
-                </div>
-            """
-
-        commits_html += "</div>"
-
-    return commits_html
-
-
-def generate_html_ai_summary(ai_summary: Optional[str]) -> str:
-    """生成 AI 摘要的 HTML 块 (Markdown 渲染)"""
-    if not ai_summary:
-        return ""
-
-    html_summary = markdown.markdown(ai_summary, extensions=["fenced_code", "tables"])
-
-    return f"""
-        <div class="ai-summary">
-            <h2 style="margin-top: 0; color: #667eea;">🤖 AI 工作摘要</h2>
-
-            <div class="markdown-body">
-                {html_summary}
-            </div>
-        </div>
-    """
 
 
 def generate_html_report(
     commits: List[GitCommit],
     stats: Dict[str, Any],
     ai_summary: Optional[str],
-    global_config: GlobalConfig,  # (V4.0) 接收 GlobalConfig
+    global_config: GlobalConfig,
 ) -> str:
     """
-    (V4.0 重构)
-    生成HTML格式的可视化报告 - 从 templates/report.html.tpl 加载骨架
-    - 接收 GlobalConfig
+    (V4.2 重构) 使用 Jinja2 模板引擎生成 HTML 报告。
     """
-
-    # (V4.0) 使用 global_config
-    tpl_path = os.path.join(
-        global_config.SCRIPT_BASE_PATH, "templates", "report.html.tpl"
+    # 1. 准备模板环境
+    templates_dir = os.path.join(global_config.SCRIPT_BASE_PATH, "templates")
+    env = Environment(
+        loader=FileSystemLoader(templates_dir),
+        autoescape=select_autoescape(["html", "xml"]),
     )
+
+    # 2. 准备数据上下文 (Context)
+    # 2.1 预处理 Markdown AI 摘要
+    ai_summary_html = ""
+    if ai_summary:
+        ai_summary_html = markdown.markdown(
+            ai_summary, extensions=["fenced_code", "tables"]
+        )
+
+    # 2.2 按作者分组提交 (方便模板遍历)
+    authors_commits = {}
+    for commit in commits:
+        authors_commits.setdefault(commit.author, []).append(commit)
+
+    # 2.3 获取参与作者列表
+    authors = list(authors_commits.keys())
+
+    # 2.4 组装完整上下文
+    template_context = {
+        "title": f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}",
+        "generation_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "css_content": _get_css_styles(global_config),
+        "ai_summary_html": ai_summary_html,
+        "total_commits": len(commits),
+        "authors": authors,
+        "stats": stats,
+        "authors_commits": authors_commits,
+        # 将 FileStat 等对象直接传给模板，模板可以直接访问其属性
+    }
+
+    # 3. 加载并渲染模板
     try:
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html_template = f.read()
-    except FileNotFoundError:
-        logger.error(f"❌ (V3.3) HTML 模板文件未找到: {tpl_path}")
-        return f"<h1>错误：HTML 模板文件未找到 ({tpl_path})</h1>"
-    except Exception as e:
-        logger.error(f"❌ (V3.3) 加载 HTML 模板失败: {e}")
-        return f"<h1>错误：加载 HTML 模板失败: {e}</h1>"
+        # 默认使用 report.html.j2，如果想更灵活，可以放入 config 中配置
+        template_name = "report.html.j2"
+        template = env.get_template(template_name)
 
-    # (V3.3) 注入内容到模板
-    return html_template.format(
-        title=f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}",
-        css=get_css_styles(global_config),  # (V4.0) 传递 global_config
-        header=generate_html_header(),
-        ai_summary_section=generate_html_ai_summary(ai_summary),
-        stats_section=generate_html_stats(commits, stats),
-        commits_section=generate_html_commits(commits),
-    )
+        logger.info(f"🎨 正在渲染 Jinja2 模板: {template_name}")
+        return template.render(**template_context)
+
+    except Exception as e:
+        logger.error(f"❌ Jinja2 模板渲染失败: {e}", exc_info=True)
+        return f"<h1>错误：模板渲染失败</h1><pre>{e}</pre>"
 
 
 def save_html_report(html_content: str, context: RunContext) -> Optional[str]:
-    """
-    (V4.0 重构) 保存HTML报告到文件
-    - 接收 RunContext
-    """
-    # (V4.0) 从 global_config 获取前缀
+    """保存HTML报告到文件 (保持 V4.0 逻辑)"""
     filename = f"{context.global_config.OUTPUT_FILENAME_PREFIX}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-
-    # --- (V4.0) 核心修改 ---
-    # (V4.0) 从 context 获取 project_data_path
     full_path = os.path.join(context.project_data_path, filename)
 
     try:
