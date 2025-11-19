@@ -1,188 +1,148 @@
-# DevLog-AIGC (V4.0) - AI 驱动的 Git 工作日报生成器
+# DevLog-AIGC (V4.4) - AI 驱动的 Git 工作日报生成器
 
-**DevLog-AIGC** 是一个基于 Python 的自动化工具，能够分析 Git 仓库的提交记录，利用大语言模型（LLM）生成结构清晰、风格多变的工作日报，并支持自动邮件发送。
+**DevLog-AIGC** 是一个高度可扩展的自动化工具，能够分析 Git 仓库的提交记录，利用大语言模型（LLM）生成结构清晰、风格多变的工作日报，并支持通过 **Email** 和 **飞书 (Feishu/Lark)** 多渠道自动推送。
 
-🚀 **V4.0 重大更新**：本项目已完成核心架构重构，引入了 **Context/Orchestrator（上下文/编排器）** 模式，实现了配置、状态与业务逻辑的完全解耦，代码更健壮、更易扩展。
-
------
-
-## ✨ 核心特性
-
-### 🏗️ V4.0 架构升级
-
-  - **运行时上下文 (RunContext)**: 所有的运行时状态、配置参数和全局单例被封装在 `RunContext` 数据类中，在模块间统一传递，消除了混乱的参数列表。
-  - **业务编排器 (Orchestrator)**: `GitReport.py` 仅作为启动入口，核心业务流程由 `orchestrator.py` 统一调度，逻辑流向一目了然。
-  - **全局配置 (GlobalConfig)**: 环境变量和静态常量通过 `config.py` 统一管理。
-
-### 🧠 强大的 AI 能力
-
-  - **多 LLM 支持 (策略模式)**: 支持 **Google Gemini** 和 **DeepSeek**，通过 `llm/` 目录下的策略类实现热切换。
-  - **Map-Reduce 摘要算法**:
-    1.  **Map**: 逐条分析 Git Diff，理解代码逻辑变更。
-    2.  **Reduce**: 结合“长期记忆”和当日所有变更，生成高层摘要。
-  - **长期记忆系统**: 自动记录每日摘要，并定期“蒸馏”为项目里程碑（`project_memory.md`），让 AI 了解项目的前世今生。
-
-### 🎨 多风格与多格式
-
-  - **多风格文章生成**: 不止是日报！支持生成 **赛博朋克(Cyberpunk)**、**修仙(Wuxia)**、**异世界(Anime)**、**侦探(Detective)** 等风格的公众号推文。
-  - **PPO (Prompt Per-Provider)**: 针对不同 LLM（Gemini/DeepSeek）优化独立的提示词模板。
-  - **PDF 导出**: 支持将生成的风格化文章通过 PrinceXML 转换为精美的 PDF 附件。
-
-### 🛠️ 便捷的项目管理
-
-  - **交互式配置向导**: `python GitReport.py --configure` 引导式设置项目别名和参数。
-  - **持久化配置**: 每个项目拥有独立的 `config.json`，无需每次输入冗长的命令行参数。
-  - **邮件群发**: 支持配置多个收件人，一键发送汇报。
+🚀 **V4.4 版本特性**：新增 **飞书 (Feishu)** 通知渠道支持，并引入 **Jinja2 模板引擎** 实现高度自定义的报告样式。
 
 -----
 
-## 🚀 快速开始
+## ✨ 核心特性 (V4.x 演进)
 
-### 1\. 环境准备
+### 📢 多渠道通知系统 (V4.3 - V4.4)
 
-克隆仓库并安装依赖（推荐使用虚拟环境）：
+- **[New] 飞书 (Feishu) 集成**:
+  - **企业自建应用模式**: 支持通过 `App ID` 和 `Secret` 上传 PDF/HTML 附件并点对点推送给指定邮箱用户。
+  - **群组 Webhook 模式**: 支持通过 Webhook 向飞书群组发送文本摘要（降级方案）。
+- **通知渠道抽象**: 采用了插件化的 `Notifier` 架构，未来可轻松扩展钉钉、Slack 等渠道。
+- **邮件群发**: 继续支持通过 SMTP (yagmail) 发送富文本邮件和附件。
 
-```bash
-git clone https://github.com/YourUsername/DevLog-AIGC.git
-cd DevLog-AIGC
+### 🎨 报告可视化升级 (V4.2)
 
-# 创建虚拟环境
-python -m venv venv
-# Windows:
-venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
+- **Jinja2 模板引擎**: 彻底重构了 HTML 生成逻辑。现在您可以直接修改 `templates/report.html.j2` 来调整日报的布局、配色和字体，无需修改 Python 代码。
+- **Markdown 渲染**: AI 生成的摘要在 HTML 报告中支持完整的 Markdown 语法渲染。
 
-# 安装依赖
-pip install -r requirements.txt
-```
+### 🏗️ 架构与扩展性 (V4.0 - V4.1)
 
-*(可选) 如需生成 PDF 附件，请安装 [PrinceXML](https://www.princexml.com/) 并确保将其添加到系统 PATH 中。*
+- **动态 LLM 注册 (Registry Pattern)**: 支持通过简单的装饰器 `@register_provider` 添加新的 AI 模型（如 Claude, Ollama），无需修改核心工厂代码。
+- **Context/Orchestrator 模式**: 运行时状态（RunContext）与业务流程（Orchestrator）完全解耦，系统更健壮。
 
-### 2\. 配置 API 密钥
+### 🧠 AI 核心能力
 
-在项目根目录创建 `.env` 文件：
+- **多风格文章**: 支持生成 **赛博朋克**、**修仙**、**宫廷权谋**、**异世界** 等多种风格的公众号推文。
+- **长期记忆**: 自动记录并“蒸馏”项目历史（`project_memory.md`），让 AI 理解项目的演进脉络。
+- **Map-Reduce 摘要**: 逐条分析 Diff 细节，再宏观总结日报。
+
+-----
+
+## ⚙️ 配置指南
+
+### 1\. 环境配置 (.env)
+
+在项目根目录创建 `.env` 文件，配置 API 密钥和通知渠道凭证。
 
 ```ini
 # .env
-GEMINI_API_KEY="你的_GEMINI_KEY"
-DEEPSEEK_API_KEY="你的_DEEPSEEK_KEY"
 
-# 邮件发送配置 (SMTP)
+# --- AI 模型配置 ---
+GEMINI_API_KEY="your_gemini_key"
+DEEPSEEK_API_KEY="your_deepseek_key"
+DEFAULT_LLM="gemini"
+
+# --- 邮件配置 (可选) ---
 SMTP_SERVER="smtp.example.com"
 SMTP_USER="your_email@example.com"
-SMTP_PASS="你的_应用专用密码"
+SMTP_PASS="your_app_password"
 
-# 全局默认设置
-DEFAULT_LLM="gemini"
+# --- [V4.4 New] 飞书配置 (可选) ---
+# 模式 A: 自建应用 (推荐，支持发文件)
+FEISHU_APP_ID="cli_xxxxxxxx"
+FEISHU_APP_SECRET="xxxxxxxxxxxxxxxxxxxx"
+
+# 模式 B: 群机器人 Webhook (仅发文本)
+FEISHU_WEBHOOK="https://open.feishu.cn/open-apis/bot/v2/hook/..."
 ```
 
-### 3\. 初始化项目配置 (推荐)
+### 2\. 项目初始化
 
-使用交互式向导配置你的 Git 仓库：
+使用交互式向导配置您的 Git 仓库：
 
 ```bash
 python GitReport.py --configure -r /path/to/your/local/repo
 ```
 
-*向导将引导你设置项目别名（如 `my-work`）、默认 LLM、文章风格和接收邮箱。*
+*向导将引导您设置项目别名、默认 LLM、文章风格以及接收人列表（邮箱）。*
 
-### 4\. 运行生成器
-
-**方式 A：使用别名运行（最常用）**
-
-```bash
-python GitReport.py -p my-work
-```
-
-**方式 B：覆盖默认参数**
-
-```bash
-# 临时使用 DeepSeek 模型，生成“修仙”风格，并以 PDF 格式发送
-python GitReport.py -p my-work --llm deepseek --style wuxia --attach-format pdf
-```
-
-**方式 C：直接指定路径 (Legacy)**
-
-```bash
-python GitReport.py -r /path/to/repo -t "1 day ago"
-```
-
-### 5\. 清理缓存
-
-```bash
-python GitReport.py --cleanup -p my-work
-```
+> **注意**: 对于飞书应用模式，系统会根据配置的接收人邮箱（`email_list`）自动匹配飞书用户进行发送。
 
 -----
 
-## 📂 V4.0 项目结构
+## 🚀 使用方法
+
+### 基础运行 (使用别名)
+
+```bash
+python GitReport.py -p my-project
+```
+
+### 启用飞书通知
+
+只要在 `.env` 中配置了飞书凭证，系统会自动检测并启用该渠道。
+
+```bash
+# 同时发送邮件和飞书通知
+python GitReport.py -p my-project
+```
+
+### 生成 PDF 附件并发送
+
+```bash
+# 生成“修仙”风格文章，转为 PDF，并通过飞书/邮件发送
+python GitReport.py -p my-project --style wuxia --attach-format pdf
+```
+
+*(需要安装 [PrinceXML](https://www.princexml.com/) 并在系统 PATH 中)*
+
+### 仅运行 Webhook (测试)
+
+如果未配置 `FEISHU_APP_ID`，系统将自动降级使用 `FEISHU_WEBHOOK` 向群组发送纯文本摘要。
+
+-----
+
+## 📂 V4.4 项目结构
 
 ```text
 DevLog-AIGC/
-├── GitReport.py           # [入口] 仅负责启动，委托给 cli.py
-├── cli.py                 # [V4.0] 命令行解析与入口逻辑
-├── context.py             # [V4.0] 定义 RunContext (运行时上下文)
-├── orchestrator.py        # [V4.0] 业务编排器 (核心流程控制)
-├── config.py              # [V4.0] GlobalConfig (环境与常量)
-├── config_manager.py      # [V3.9] 项目配置与别名管理 (JSON IO)
-├── ai_summarizer.py       # [Service] AI 服务外观类
-├── report_builder.py      # [Service] HTML 报告生成
-├── git_utils.py           # [Service] Git 命令执行
-├── email_sender.py        # [Service] 邮件发送
-├── pdf_converter.py       # [Service] Markdown 转 PDF
-├── models.py              # 数据模型 (GitCommit, FileStat)
-├── utils.py               # 通用工具 (日志)
-├── .env                   # API 密钥 (不上传)
-├── requirements.txt       # 依赖列表
-├── llm/                   # LLM 策略实现
-│   ├── provider_abc.py
+├── GitReport.py           # [入口] 启动脚本
+├── orchestrator.py        # [核心] 业务流程编排 (V4.4 更新)
+├── notifiers/             # [V4.3 New] 通知渠道模块
+│   ├── base.py            # 抽象基类
+│   ├── factory.py         # 通知器工厂
+│   ├── email_notifier.py  # 邮件实现
+│   └── feishu_notifier.py # [V4.4] 飞书实现
+├── templates/             # [V4.2 New] 模板文件
+│   ├── report.html.j2     # Jinja2 HTML 模板
+│   └── styles.css         # 样式表
+├── llm/                   # AI 供应商策略
+│   ├── provider_abc.py    # 包含注册表逻辑
 │   ├── gemini_provider.py
 │   └── deepseek_provider.py
-├── prompts/               # 提示词模板 (按供应商/风格隔离)
-│   ├── deepseek/
-│   └── gemini/
-├── templates/             # 报告模板
-│   ├── report.html.tpl
-│   ├── styles.css
-│   └── pdf_style.css
-└── data/                  # [自动生成] 存储各项目的配置、日志和记忆
-    ├── projects.json      # 全局别名映射
-    └── <Project_Name>/    # 特定项目数据
+├── report_builder.py      # [V4.2] 负责渲染 Jinja2 模板
+├── config.py              # 全局配置 (包含飞书配置)
+└── .env                   # 敏感凭证 (不上传)
 ```
 
 -----
 
-## 🛠️ 参数说明
+## ⚠️ 关于飞书功能的说明
 
-运行 `python GitReport.py --help` 查看完整帮助：
+当前 `FeishuNotifier` 包含两种模式：
 
-| 参数                | 说明              | 备注                           |
-| :------------------ | :---------------- | :----------------------------- |
-| `--configure`       | 运行配置向导      | 需配合 `-r`                    |
-| `--cleanup`         | 运行清理向导      | 需配合 `-p` 或 `-r`            |
-| `-p`, `--project`   | 指定项目别名      | 优先加载 `data/` 下的配置      |
-| `-r`, `--repo-path` | 指定 Git 仓库路径 | 直接运行模式                   |
-| `-t`, `--time`      | Git 时间范围      | 默认为 "1 day ago"             |
-| `-n`, `--number`    | 最近 N 次提交     | 与 `-t` 互斥                   |
-| `--llm`             | 指定 LLM 供应商   | `gemini` 或 `deepseek`         |
-| `--style`           | 指定文章风格      | `default`, `novel`, `anime`... |
-| `--attach-format`   | 附件格式          | `html` (默认) 或 `pdf`         |
-| `-e`, `--email`     | 接收邮箱          | 逗号分隔多个邮箱               |
-| `--no-ai`           | 禁用 AI 功能      | 仅生成基础统计报告             |
-| `--no-browser`      | 不自动打开浏览器  | 适用于服务器环境               |
+1. **App 模式**: 调用 `im/v1/messages` 接口。需要企业自建应用权限（机器人能力）。
+2. **Webhook 模式**: 调用群机器人 Webhook。
+
+**待验证状态**: 由于开发环境限制，App 模式的文件上传和点对点发送功能尚未在真实的企业租户下进行完全验证。欢迎拥有权限的开发者测试并反馈。
 
 -----
-
-## 🤝 贡献指南
-
-1.  Fork 本仓库。
-2.  创建特性分支 (`git checkout -b feature/AmazingFeature`)。
-3.  提交更改 (`git commit -m 'Add some AmazingFeature'`)。
-4.  推送到分支 (`git push origin feature/AmazingFeature`)。
-5.  开启 Pull Request。
-
-**开发提示**: V4.0 所有模块均依赖 `RunContext` 对象进行状态传递。新增功能时，请确保在 `orchestrator.py` 中正确调用，并尽量保持服务的无状态性。
 
 ## 📄 许可证
 
