@@ -256,63 +256,58 @@ class ReportOrchestrator:
         if not self.context.no_browser:  # (V4.0)
             utils.open_report_in_browser(html_filename_full_path)
 
-        # 13. (可选) 发送邮件 (V4.0 重构)
-        if self.context.email_list:  # (V4.0)
-            logger.info("准备发送邮件...")
-            email_body_content = ai_summary if ai_summary else text_report
-            if not ai_summary:
-                logger.warning("AI 摘要不可用，将使用原始文本报告作为邮件正文。")
+        # 13. [V4.3 重构] 多渠道通知分发
+        # 13.1 准备通知内容
+        notification_subject = f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
 
-            # --- [V3.7-PDF] 核心修改：根据 attach_format 选择附件路径 ---
-            attachment_to_send = None
-            pdf_full_path = None
+        # 优先使用 AI 摘要作为正文，如果没有则回退到文本报告
+        # 注意：如果是 HTML 邮件，EmailNotifier 会自己处理包装；
+        # 如果是文本消息（如飞书），可能需要纯文本。
+        # 这里我们传递最丰富的内容，由具体 Notifier 决定如何渲染。
+        notification_content = ai_summary if ai_summary else text_report
 
-            if self.context.attach_format == "pdf":  # (V4.0)
-                logger.info(f"💌 附件格式: 'pdf'。")
-                if article_full_path:
-                    logger.info(f"🤖 正在启动 V3.7 PDF 转换 (PrinceXML)...")
-                    try:
-                        # (V4.0) pdf_converter 函数现在接收 RunContext
-                        pdf_full_path = pdf_converter.convert_md_to_pdf(
-                            article_full_path, self.context
-                        )
-                        if pdf_full_path:
-                            attachment_to_send = pdf_full_path
-                            logger.info(f"✅ PDF 转换成功: {attachment_to_send}")
-                        else:
-                            raise Exception("PDF 转换函数返回 None")
-                    except Exception as e:
-                        logger.error(f"❌ PDF 转换失败: {e}")
-                        logger.warning(
-                            f"   将回退发送 HTML 报告: {html_filename_full_path}"
-                        )
-                        attachment_to_send = html_filename_full_path
+        # 13.2 准备附件 (PDF or HTML)
+        attachment_to_send = None
+        pdf_full_path = None
+
+        # 检查是否需要生成 PDF (仅当有通知渠道激活 且 指定了 pdf 格式时)
+        # 为了简单起见，我们先准备好所有可能的附件路径
+        if self.context.attach_format == "pdf":
+            if article_full_path:
+                logger.info(f"🤖 正在启动 PDF 转换 (用于附件发送)...")
+                pdf_full_path = pdf_converter.convert_md_to_pdf(
+                    article_full_path, self.context
+                )
+                if pdf_full_path:
+                    attachment_to_send = pdf_full_path
                 else:
-                    logger.warning(f"⚠️ 附件格式: 'pdf'，但风格文章未生成。")
-                    logger.warning(
-                        f"   将回退发送 HTML 报告: {html_filename_full_path}"
-                    )
+                    logger.warning("⚠️ PDF 转换失败，回退使用 HTML 附件。")
                     attachment_to_send = html_filename_full_path
             else:
-                # 默认 (html)
+                logger.warning("⚠️ 指定了 PDF 格式但未生成文章，回退使用 HTML 附件。")
                 attachment_to_send = html_filename_full_path
-                logger.info(f"💌 附件格式: 'html'。将发送: {attachment_to_send}")
-            # --- [V3.7-PDF] 逻辑结束 ---
+        else:
+            # 默认 HTML
+            attachment_to_send = html_filename_full_path
 
-            if not attachment_to_send:
-                logger.error("❌ 邮件发送失败：找不到任何附件文件 (HTML or PDF)。")
-                email_success = False
-            else:
-                # [V3.9] 调用更新后的 email_sender 函数
-                # (V4.0) email_sender 函数现在接收 RunContext
-                email_success = email_sender.send_email_report(
-                    self.context,
-                    self.context.email_list,
-                    email_body_content,
-                    attachment_to_send,
+        # 13.3 加载并执行所有激活的通知器
+        # (V4.3) 导入工厂
+        from notifiers.factory import get_active_notifiers
+
+        active_notifiers = get_active_notifiers(self.context)
+
+        if not active_notifiers:
+            logger.info("ℹ️ 没有激活任何通知渠道 (未配置邮箱或 Webhook)，跳过发送。")
+        else:
+            logger.info(f"🚀 开始通过 {len(active_notifiers)} 个渠道推送报告...")
+            for notifier in active_notifiers:
+                logger.info(f"   >> 正在调用: {notifier.name}")
+                success = notifier.send(
+                    subject=notification_subject,
+                    content=notification_content,
+                    attachment_path=attachment_to_send,
                 )
-
-            if email_success:
-                print("\n[📢 邮件检测: 发送请求成功，请检查收件箱 (包括垃圾邮件)]")
-            else:
-                print("\n[❌ 邮件检测: 发送失败，请检查终端日志中的详细错误信息和配置]")
+                status_icon = "✅" if success else "❌"
+                print(
+                    f"[{status_icon} 推送结果] {notifier.name}: {'成功' if success else '失败'}"
+                )
