@@ -1,307 +1,191 @@
-# DevLog-AIGC (AI 驱动的 Git 工作日报)
+# DevLog-AIGC (V4.0) - AI 驱动的 Git 工作日报生成器
 
-本项目是一个基于 Python 的 Git 工作日报自动化工具，现已进化为 V3.9，支持**多 LLM 供应商**、**多风格报告**，并引入了**持久化配置**和**项目管理**功能。
+**DevLog-AIGC** 是一个基于 Python 的自动化工具，能够分析 Git 仓库的提交记录，利用大语言模型（LLM）生成结构清晰、风格多变的工作日报，并支持自动邮件发送。
 
-它能够抓取**任意指定路径**的 Git 仓库在指定时间范围内的提交记录和变更统计，自动生成一份结构清晰、上下文连续、带 AI 总结的可视化 HTML 报告，并将其通过 Email 自动（群发）给指定收件人。
+🚀 **V4.0 重大更新**：本项目已完成核心架构重构，引入了 **Context/Orchestrator（上下文/编排器）** 模式，实现了配置、状态与业务逻辑的完全解耦，代码更健壮、更易扩展。
 
-## ✨ 主要特性 (V3.9 更新)
+-----
 
-- **[V3.8] 项目别名与持久化配置**
+## ✨ 核心特性
 
-  - 彻底告别繁琐的命令行参数。
+### 🏗️ V4.0 架构升级
 
-  - 通过 `data/projects.json` 管理项目“别名”到“仓库路径”的映射。
+  - **运行时上下文 (RunContext)**: 所有的运行时状态、配置参数和全局单例被封装在 `RunContext` 数据类中，在模块间统一传递，消除了混乱的参数列表。
+  - **业务编排器 (Orchestrator)**: `GitReport.py` 仅作为启动入口，核心业务流程由 `orchestrator.py` 统一调度，逻辑流向一目了然。
+  - **全局配置 (GlobalConfig)**: 环境变量和静态常量通过 `config.py` 统一管理。
 
-  - 每个项目在 `data/<Project>/config.json` 中拥有自己的默认配置（LLM、风格、邮件列表等）。
+### 🧠 强大的 AI 能力
 
-- **[V3.9] 交互式项目管理**
+  - **多 LLM 支持 (策略模式)**: 支持 **Google Gemini** 和 **DeepSeek**，通过 `llm/` 目录下的策略类实现热切换。
+  - **Map-Reduce 摘要算法**:
+    1.  **Map**: 逐条分析 Git Diff，理解代码逻辑变更。
+    2.  **Reduce**: 结合“长期记忆”和当日所有变更，生成高层摘要。
+  - **长期记忆系统**: 自动记录每日摘要，并定期“蒸馏”为项目里程碑（`project_memory.md`），让 AI 了解项目的前世今生。
 
-  - 通过 `python GitReport.py --configure -r ...` 启动交互式向导，轻松配置项目别名和默认参数。
+### 🎨 多风格与多格式
 
-  - 通过 `python GitReport.py --cleanup -p ...` 启动交互式清理向导，安全地清理缓存或重置项目。
+  - **多风格文章生成**: 不止是日报！支持生成 **赛博朋克(Cyberpunk)**、**修仙(Wuxia)**、**异世界(Anime)**、**侦探(Detective)** 等风格的公众号推文。
+  - **PPO (Prompt Per-Provider)**: 针对不同 LLM（Gemini/DeepSeek）优化独立的提示词模板。
+  - **PDF 导出**: 支持将生成的风格化文章通过 PrinceXML 转换为精美的 PDF 附件。
 
-- **[V3.9] 邮件群发**
+### 🛠️ 便捷的项目管理
 
-  - `config.json` 和 `-e` 参数现在支持配置**多个**收件人邮箱，实现日报的自动群发。
+  - **交互式配置向导**: `python GitReport.py --configure` 引导式设置项目别名和参数。
+  - **持久化配置**: 每个项目拥有独立的 `config.json`，无需每次输入冗长的命令行参数。
+  - **邮件群发**: 支持配置多个收件人，一键发送汇报。
 
-- **[V3.4] 可插拔的多 LLM 架构 (Strategy Pattern)**
+-----
 
-  - 摆脱对单一供应商的硬编码依赖。
+## 🚀 快速开始
 
-  - 使用策略模式 (Strategy Pattern) 实现，逻辑清晰，易于扩展（`llm/provider_abc.py`）。
+### 1\. 环境准备
 
-  - 通过 `--llm [gemini|deepseek]` 命令行参数在运行时自由切换 AI 供应商。
+克隆仓库并安装依赖（推荐使用虚拟环境）：
 
-- **[V3.6] 供应商/风格双重解耦 (PPO)**
-
-  - **PPO (Prompt Per-Provider)**：每种 LLM（`prompts/gemini/`, `prompts/deepseek/`）拥有自己独立的提示词模板。
-
-  - **多风格文章生成**：通过 `--style [style]` 参数，支持生成不同风格的“整活”公众号文章（例如 `anime`, `novel`）。
-
-- **两阶段 AI 摘要 (MapReduce)**
-
-  - **Map 阶段**: AI 作为 "Code Reviewer" 逐条阅读每个 `git diff`，总结其核心逻辑变更。
-
-  - **Reduce 阶段**: AI 作为 "技术主管"，综合所有原始 Git 日志、"Map" 总结以及 "长期记忆"，生成最终工作日报。
-
-- **长期项目记忆与蒸馏**
-
-  - **地基日志**: 自动将每天生成的 AI 摘要存入 `project_log.jsonl`。
-
-  - **记忆蒸馏**: AI 作为 "项目历史学家"，定期读取全部日志，压缩提炼为 `project_memory.md`。
-
-- **[V3.7] 多格式附件**
-
-  - 自动生成美观、易读的 HTML 报告（基于 `templates/`）。
-
-  - 支持调用 PrinceXML 将 AI 生成的风格文章（Markdown）转换为 `PDF` 附件发送。
-
-## 🚀 安装指南
-
-**1. 克隆仓库**
-
-Bash
-
-```
+```bash
 git clone https://github.com/YourUsername/DevLog-AIGC.git
 cd DevLog-AIGC
-```
 
-**2. (推荐) 创建虚拟环境**
-
-Bash
-
-```
-# Windows
+# 创建虚拟环境
 python -m venv venv
+# Windows:
 venv\Scripts\activate
-
-# macOS / Linux
-python3 -m venv venv
+# Mac/Linux:
 source venv/bin/activate
-```
 
-**3. 安装依赖**
-
-Bash
-
-```
+# 安装依赖
 pip install -r requirements.txt
 ```
 
-_(请注意：V3.7 新增了 PDF 转换依赖，请确保 `prince` (PrinceXML) 已安装并处于系统 PATH 中，以便使用 PDF 附件功能)_
+*(可选) 如需生成 PDF 附件，请安装 [PrinceXML](https://www.princexml.com/) 并确保将其添加到系统 PATH 中。*
 
-## ⚙️ 配置 (V3.9 工作流)
+### 2\. 配置 API 密钥
 
-V3.8 引入了全新的配置工作流，取代了旧版的纯手动 `.env` 和参数。
+在项目根目录创建 `.env` 文件：
 
-**第 1 步：配置 `.env` (仅需一次)**
-
-在项目根目录（`DevLog-AIGC/`）下，创建一个名为 `.env` 的文件。这是**唯一**需要手动配置的文件，用于存放**全局**密钥。
-
-Ini, TOML
-
-```
+```ini
 # .env
+GEMINI_API_KEY="你的_GEMINI_KEY"
+DEEPSEEK_API_KEY="你的_DEEPSEEK_KEY"
 
-# [V3.4] LLM 供应商 API 密钥
-GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
-DEEPSEEK_API_KEY="YOUR_DEEPSEEK_API_KEY_HERE"
-
-# (可选) 默认 LLM (gemini 或 deepseek)，如果 --llm 未指定
-DEFAULT_LLM="gemini"
-
-# [V3.3] SMTP 邮件配置 (用于发送报告)
+# 邮件发送配置 (SMTP)
 SMTP_SERVER="smtp.example.com"
-SMTP_USER="your-email@example.com"
-SMTP_PASS="YOUR_SMTP_AUTHORIZATION_CODE_HERE"
+SMTP_USER="your_email@example.com"
+SMTP_PASS="你的_应用专用密码"
+
+# 全局默认设置
+DEFAULT_LLM="gemini"
 ```
 
-**第 2 步：[V3.8 新] 运行交互式配置向导**
+### 3\. 初始化项目配置 (推荐)
 
-这是配置**具体项目**（如 `my-work`）的推荐方式。指向你的 Git 仓库路径：
+使用交互式向导配置你的 Git 仓库：
 
-Bash
-
-```
-python GitReport.py --configure -r /path/to/your/git/repo
+```bash
+python GitReport.py --configure -r /path/to/your/local/repo
 ```
 
-向导将引导你完成：
+*向导将引导你设置项目别名（如 `my-work`）、默认 LLM、文章风格和接收邮箱。*
 
-1. **设置项目别名** (例如 `my-work`)：这将保存到 `data/projects.json`。
+### 4\. 运行生成器
 
-2. **设置项目默认值**：(这将保存到 `data/my-work/config.json`)
+**方式 A：使用别名运行（最常用）**
 
-    - 默认 LLM (gemini/deepseek)
-
-    - 默认文章风格 (default/novel/anime...)
-
-    - 默认收件人 (V3.9 支持群发，用逗号分隔)
-
-    - 默认附件格式 (html/pdf)
-
-**(安全提示: `.gitignore` 文件已配置为忽略 `.env`、`data/`、`*.jsonl` 和 `project_memory.md` 文件，因此您的密钥和项目数据不会被意外上传。)**
-
-## 🏃 如何运行 (V3.9 更新)
-
-主入口文件是 `GitReport.py`。
-
-1. [V3.8] 配置你的第一个项目（必做）
-
-(替换为你的仓库路径)
-
-Bash
-
-```
-python GitReport.py --configure -r /path/to/my-project
+```bash
+python GitReport.py -p my-work
 ```
 
-2. [V3.8] 使用别名运行（推荐）
+**方式 B：覆盖默认参数**
 
-(假设你在上一步中将别名设置为 my-project)
-
-Bash
-
-```
-python GitReport.py -p my-project
+```bash
+# 临时使用 DeepSeek 模型，生成“修仙”风格，并以 PDF 格式发送
+python GitReport.py -p my-work --llm deepseek --style wuxia --attach-format pdf
 ```
 
-_(这将自动加载 `data/my-project/config.json` 中的所有默认设置)_
+**方式 C：直接指定路径 (Legacy)**
 
-3. [V3.8] 覆盖默认值运行
-
-(使用 my-project 的配置，但临时将风格改为 novel 并发送到不同邮箱)
-
-Bash
-
-```
-python GitReport.py -p my-project --style novel -e "other@example.com,boss@example.com"
+```bash
+python GitReport.py -r /path/to/repo -t "1 day ago"
 ```
 
-4. [V3.9] 清理项目缓存或重置
+### 5\. 清理缓存
 
-(交互式向导，用于删除 my-project 的报告、记忆或配置)
-
-Bash
-
-```
-python GitReport.py --cleanup -p my-project
+```bash
+python GitReport.py --cleanup -p my-work
 ```
 
-5. [Legacy] 兼容 V3.7 的直接路径模式
+-----
 
-(不使用别名，手动指定所有参数)
+## 📂 V4.0 项目结构
 
-Bash
-
-```
-python GitReport.py -r /path/to/repo -t "7 days ago" --llm deepseek --style anime -e "manager@example.com"
-```
-
-**6. 查看所有参数帮助 (V3.9)**
-
-Bash
-
-```
-python GitReport.py --help
-```
-
-```
-usage: GitReport.py [-h] [--configure] [--cleanup] [-p PROJECT | -r REPO_PATH] [-t TIME | -n NUMBER] [--llm {gemini,deepseek}] [--style STYLE] [--attach-format {html,pdf}] [-e EMAIL]
-                    [--no-ai] [--no-browser]
-
-Git 工作日报生成器 (V3.9)
-
-options:
-  -h, --help            show this help message and exit
-  --configure           [V3.8] 运行交互式配置向导。
-                           (需要 -r 指定要配置的仓库路径)
-  --cleanup             [V3.9] 运行交互式项目清理向导。
-                           (需要 -p 或 -r 指定清理目标)
-  -p PROJECT, --project PROJECT
-                        [V3.8] 使用已配置的项目别名运行报告。
-                           (与 -r 互斥)
-  -r REPO_PATH, --repo-path REPO_PATH
-                        [V3.0] 指定要分析的 Git 仓库的根目录路径。
-                           (用于 --configure, --cleanup 或直接运行未配置的项目)
-  -t TIME, --time TIME  指定Git日志的时间范围 (例如 '1 day ago').
-                        (默认: '1 day ago')
-  -n NUMBER, --number NUMBER
-                        [V3.2] 指定最近 N 次提交 (例如 5)。
-                        (与 -t 互斥)
-  --llm {gemini,deepseek}
-                        [V3.4] (覆盖) 指定要使用的 LLM 供应商。
-                        (默认: 使用项目 config.json 或全局 config.py 中的设置)
-  --style STYLE         [V3.6] (覆盖) 指定公众号文章的风格。
-                        例如: 'default', 'novel', 'anime'。
-                        (默认: 使用项目 config.json 中的设置)
-  --attach-format {html,pdf}
-                        [V3.7] (覆盖) (与 -e 连用) 指定邮件的附件格式。
-                        'html': 发送 GitReport_....html
-                        'pdf': (实验性) 将风格文章转为 PDF (需安装 PrinceXML)
-                        (默认: 使用项目 config.json 中的设置)
-  -e EMAIL, --email EMAIL
-                        [V3.9] (覆盖) 接收邮箱 (多个请用逗号,分隔)。
-                        (默认: 使用项目 config.json 中的设置)
-  --no-ai               禁用 AI 摘要功能
-  --no-browser          不自动在浏览器中打开报告
-```
-
-## 📁 项目结构 (V3.9 重构后)
-
-```
+```text
 DevLog-AIGC/
-├── .env               # (私密) API 密钥和 SMTP 密码
-├── .gitignore         # (已配置) 忽略 .env, data/, *.html 等
-├── GitReport.py       # (主入口 V3.9)
-├── config.py          # (V3.4) 全局配置 (Key, 默认 LLM)
-├── config_manager.py  # (V3.8) 核心：处理 config.json 和 projects.json
-├── ai_summarizer.py   # (V3.5) AI 服务 "上下文" (Context)
-├── report_builder.py  # (V3.3) HTML 报告生成
-├── pdf_converter.py   # (V3.7) MD 转 PDF (PrinceXML)
-├── git_utils.py       # (V3.2) Git 命令执行
-├── email_sender.py    # (V3.9) 邮件发送 (支持群发)
-├── models.py          # (V3.3) 数据模型 (GitCommit, FileStat)
-├── utils.py           # (V3.3) 通用工具 (日志, 浏览器)
-├── requirements.txt   # (V3.4) 依赖列表
-|
-├── llm/               # (V3.4) LLM 策略模式 (Strategy)
-│   ├── provider_abc.py    # (V3.5) 抽象接口
-│   ├── gemini_provider.py # (V3.6) Gemini 策略实现
-│   └── deepseek_provider.py # (V3.6) DeepSeek 策略实现
-|
-├── prompts/           # (V3.6) 供应商/风格双重解耦
-│   ├── gemini/
-│   │   ├── articles/      # (V3.6) 风格文章 (default, anime, novel...)
-│   │   ├── diff_map.txt
-│   │   ├── memory_distill.txt
-│   │   └── summary_reduce.txt
-│   └── deepseek/
-│       ├── articles/
-│       ├── system.txt
-│       ├── diff_map.txt
-│       ├── memory_distill.txt
-│       └── summary_reduce.txt
-|
-├── templates/         # (V3.3) 视图模板
+├── GitReport.py           # [入口] 仅负责启动，委托给 cli.py
+├── cli.py                 # [V4.0] 命令行解析与入口逻辑
+├── context.py             # [V4.0] 定义 RunContext (运行时上下文)
+├── orchestrator.py        # [V4.0] 业务编排器 (核心流程控制)
+├── config.py              # [V4.0] GlobalConfig (环境与常量)
+├── config_manager.py      # [V3.9] 项目配置与别名管理 (JSON IO)
+├── ai_summarizer.py       # [Service] AI 服务外观类
+├── report_builder.py      # [Service] HTML 报告生成
+├── git_utils.py           # [Service] Git 命令执行
+├── email_sender.py        # [Service] 邮件发送
+├── pdf_converter.py       # [Service] Markdown 转 PDF
+├── models.py              # 数据模型 (GitCommit, FileStat)
+├── utils.py               # 通用工具 (日志)
+├── .env                   # API 密钥 (不上传)
+├── requirements.txt       # 依赖列表
+├── llm/                   # LLM 策略实现
+│   ├── provider_abc.py
+│   ├── gemini_provider.py
+│   └── deepseek_provider.py
+├── prompts/               # 提示词模板 (按供应商/风格隔离)
+│   ├── deepseek/
+│   └── gemini/
+├── templates/             # 报告模板
 │   ├── report.html.tpl
 │   ├── styles.css
-│   └── pdf_style.css    # (V3.7) PDF 样式
-|
-├── data/              # (运行时生成) (V3.8)
-│   ├── projects.json    # (V3.8) 全局别名
-│   └── Project-A/       # (示例) 目标仓库的项目数据
-│       ├── config.json      # (V3.8) 项目默认配置
-│       ├── GitReport_....html
-│       ├── PublicArticle_anime_....md
-│       ├── PublicArticle_anime_....pdf # (V3.7)
-│       ├── project_log.jsonl
-│       └── project_memory.md
-|
-└── LICENSE            # (许可证) MIT License
+│   └── pdf_style.css
+└── data/                  # [自动生成] 存储各项目的配置、日志和记忆
+    ├── projects.json      # 全局别名映射
+    └── <Project_Name>/    # 特定项目数据
 ```
+
+-----
+
+## 🛠️ 参数说明
+
+运行 `python GitReport.py --help` 查看完整帮助：
+
+| 参数                | 说明              | 备注                           |
+| :------------------ | :---------------- | :----------------------------- |
+| `--configure`       | 运行配置向导      | 需配合 `-r`                    |
+| `--cleanup`         | 运行清理向导      | 需配合 `-p` 或 `-r`            |
+| `-p`, `--project`   | 指定项目别名      | 优先加载 `data/` 下的配置      |
+| `-r`, `--repo-path` | 指定 Git 仓库路径 | 直接运行模式                   |
+| `-t`, `--time`      | Git 时间范围      | 默认为 "1 day ago"             |
+| `-n`, `--number`    | 最近 N 次提交     | 与 `-t` 互斥                   |
+| `--llm`             | 指定 LLM 供应商   | `gemini` 或 `deepseek`         |
+| `--style`           | 指定文章风格      | `default`, `novel`, `anime`... |
+| `--attach-format`   | 附件格式          | `html` (默认) 或 `pdf`         |
+| `-e`, `--email`     | 接收邮箱          | 逗号分隔多个邮箱               |
+| `--no-ai`           | 禁用 AI 功能      | 仅生成基础统计报告             |
+| `--no-browser`      | 不自动打开浏览器  | 适用于服务器环境               |
+
+-----
+
+## 🤝 贡献指南
+
+1.  Fork 本仓库。
+2.  创建特性分支 (`git checkout -b feature/AmazingFeature`)。
+3.  提交更改 (`git commit -m 'Add some AmazingFeature'`)。
+4.  推送到分支 (`git push origin feature/AmazingFeature`)。
+5.  开启 Pull Request。
+
+**开发提示**: V4.0 所有模块均依赖 `RunContext` 对象进行状态传递。新增功能时，请确保在 `orchestrator.py` 中正确调用，并尽量保持服务的无状态性。
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证。
+[MIT License](https://www.google.com/search?q=LICENSE)
+
+Copyright (c) 2025 AzureDescent
