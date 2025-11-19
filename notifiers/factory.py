@@ -4,12 +4,12 @@ import logging
 from context import RunContext
 from .base import BaseNotifier
 from .email_notifier import EmailNotifier
+from .feishu_notifier import FeishuNotifier
 
 # --- 在这里注册新的通知渠道 ---
-# 未来如果要加飞书，只需 import FeishuNotifier 并加到这个列表里
 AVAILABLE_NOTIFIERS_CLASSES = [
     EmailNotifier,
-    # FeishuNotifier,
+    FeishuNotifier,
     # SlackNotifier,
 ]
 

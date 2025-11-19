@@ -112,3 +112,15 @@ class GlobalConfig:
     SMTP_PORT: int = 465
     SMTP_USER: str = os.getenv("SMTP_USER", "your-email@example.com")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASS", "")
+
+    # =================================================================
+    # --- [V4.4] 飞书 (Feishu) 配置 ---
+    # =================================================================
+    # 1. 自建应用凭证 (推荐，用于发送文件)
+    #    获取方式: 飞书开发者后台 -> 创建企业自建应用 -> 凭证与基础信息
+    FEISHU_APP_ID: str = os.getenv("FEISHU_APP_ID", "")
+    FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")
+
+    # 2. 群组 Webhook (降级备用，仅发送文本)
+    #    获取方式: 飞书群组 -> 设置 -> 群机器人 -> 添加机器人 -> 复制 Webhook 地址
+    FEISHU_WEBHOOK: str = os.getenv("FEISHU_WEBHOOK", "")
