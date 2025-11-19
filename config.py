@@ -103,9 +103,6 @@ class GlobalConfig:
             return bool(self.GEMINI_API_KEY)
         if provider == "deepseek":
             return bool(self.DEEPSEEK_API_KEY)
-        # [V4.1] Mock 供应商不需要 API Key
-        if provider == "mock":
-            return True
         return False
 
     # =================================================================
