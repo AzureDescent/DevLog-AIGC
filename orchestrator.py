@@ -1,11 +1,10 @@
 # orchestrator.py
 """
-[V4.4] 业务逻辑编排器
+[V4.5] 业务逻辑编排器
 - 集成 Context/Orchestrator 模式
-- [V4.3] 集成多渠道通知系统 (Notifiers)，移除 email_sender 强依赖
+- [V4.5] 集成 DataSource 抽象层，解耦数据获取逻辑
 """
 import logging
-import sys
 import os
 import json
 from datetime import datetime
@@ -17,12 +16,12 @@ from config import GlobalConfig
 
 # V4.0 导入服务
 from ai_summarizer import AIService
-import git_utils
 import report_builder
-
-# import email_sender  <-- [已移除] 旧的邮件发送模块
 import pdf_converter
 import utils
+
+# [V4.5] 导入数据源工厂
+from data_sources.factory import get_data_source
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +38,21 @@ class ReportOrchestrator:
         """
         self.context = context
         self.global_config = context.global_config
-        logger.info("✅ (V4.0) ReportOrchestrator 已初始化")
+
+        # [V4.5] 初始化数据源
+        self.data_source = get_data_source(context)
+
+        logger.info("✅ (V4.5) ReportOrchestrator 已初始化 (含 DataSource)")
 
     def run(self):
         """
         (V4.0) 执行核心业务流程。
         """
+
+        # --- 0. [V4.5] 验证数据源 ---
+        if not self.data_source.validate():
+            logger.error("❌ 数据源验证失败，终止运行。")
+            return
 
         # --- 1. AI 实例创建 ---
         ai_service: Optional[AIService] = None
@@ -52,22 +60,12 @@ class ReportOrchestrator:
             try:
                 ai_service = AIService(self.context)
             except (ValueError, ImportError) as e:
-                logger.error(f"❌ (V3.4) AI 服务初始化失败: {e}")
-                logger.error("   请检查您的 .env 文件是否已正确配置。")
+                logger.error(f"❌ AI 服务初始化失败: {e}")
                 logger.error("   将以 --no-ai 模式继续...")
                 self.context.no_ai = True
 
-        # --- 2. 读取 README ---
-        project_readme = None
-        readme_path = os.path.join(self.context.repo_path, "README.md")
-        try:
-            with open(readme_path, "r", encoding="utf-8") as f:
-                project_readme = f.read()
-            logger.info(f"✅ 成功加载目标仓库 README: {readme_path}")
-        except FileNotFoundError:
-            logger.warning(f"❌ 未在目标仓库找到 README.md，跳过加载。 ({readme_path})")
-        except Exception as e:
-            logger.error(f"❌ 读取 README.md 失败 ({readme_path}): {e}")
+        # --- 2. [V4.5] 读取 README (通过 DataSource) ---
+        project_readme = self.data_source.get_readme()
 
         # --- 3. 读取“压缩记忆” ---
         previous_summary = None
@@ -76,29 +74,23 @@ class ReportOrchestrator:
         )
         if not self.context.no_ai:
             try:
-                with open(memory_file_path, "r", encoding="utf-8") as f:
-                    previous_summary = f.read()
-                if previous_summary:
+                if os.path.exists(memory_file_path):
+                    with open(memory_file_path, "r", encoding="utf-8") as f:
+                        previous_summary = f.read()
                     logger.info(f"✅ 成功加载压缩记忆: {memory_file_path}")
-            except FileNotFoundError:
-                logger.info(f"ℹ️ 未找到压缩记忆 ({memory_file_path})，将从头开始。")
             except Exception as e:
                 logger.error(f"❌ 加载压缩记忆失败 ({memory_file_path}): {e}")
 
-        # --- 4. 检查 Git 环境 ---
-        if not git_utils.is_git_repository(self.context.repo_path):
-            logger.error(f"❌ 指定路径不是Git仓库: {self.context.repo_path}")
-            return
+        # --- 4. [V4.5] 获取 Git 数据 (通过 DataSource) ---
+        # 移除原有的 git_utils.get_git_log 调用
+        commits = self.data_source.get_commits()
 
-        # --- 5. 获取 Git 数据 ---
-        log_output = git_utils.get_git_log(self.context)
-        if not log_output:
-            logger.error("❌ 未获取到Git提交记录")
+        if not commits:
+            logger.error("❌ 未获取到提交记录")
             print(f"💡 提示: 在 '{self.context.time_range_desc}' 范围内可能没有提交。")
             return
 
-        commits = git_utils.parse_git_log(log_output)
-        stats = git_utils.get_git_stats(self.context)
+        stats = self.data_source.get_stats()
         stats["total_commits"] = len(commits)
 
         # --- 6. 生成文本报告 (基础数据) ---
@@ -112,7 +104,8 @@ class ReportOrchestrator:
             for commit in commits:
                 if commit.is_merge_commit:
                     continue
-                diff_content = git_utils.get_commit_diff(self.context, commit.hash)
+                # [V4.5] 使用 DataSource 获取 Diff
+                diff_content = self.data_source.get_diff(commit.hash)
                 if diff_content:
                     single_summary = ai_service.get_single_diff_summary(diff_content)
                     if single_summary:
@@ -171,7 +164,6 @@ class ReportOrchestrator:
 
         # --- 11. 风格转换 (Markdown 文章) ---
         article_full_path = None
-        # 只要 style 不是默认，或者需要 PDF 附件，就生成文章
         needs_article = (self.context.style != "default") or (
             self.context.attach_format == "pdf"
         )
@@ -202,7 +194,6 @@ class ReportOrchestrator:
                             f"✅ 公众号文章 (Markdown) 已保存: {article_full_path}"
                         )
 
-                        # 仅当不发送邮件时才在控制台打印预览
                         if not self.context.email_list:
                             print("\n" + "=" * 50)
                             print(f"📰 文章预览 ({self.context.style}):")
@@ -212,7 +203,7 @@ class ReportOrchestrator:
                         logger.error(f"❌ 保存公众号文章失败: {e}")
                         article_full_path = None
 
-        # --- 12. 打印摘要到控制台 (仅当不发邮件时) ---
+        # --- 12. 打印摘要到控制台 ---
         if not self.context.email_list:
             print("\n" + "=" * 50)
             if ai_summary:
@@ -222,27 +213,27 @@ class ReportOrchestrator:
             else:
                 print("📄 原始文本报告 (AI未运行或生成失败):")
                 print(text_report)
-
-        # --- 13. 打印统计 ---
-        if not self.context.email_list:
             print(
                 f"\n📊 新增: {stats['additions']} 行, 删除: {stats['deletions']} 行, 文件: {stats['files_changed']}"
             )
 
-        # --- 14. 打开浏览器 ---
+        # --- 13. 打开浏览器 ---
         if not self.context.no_browser:
             utils.open_report_in_browser(html_filename_full_path)
 
-        # =================================================================
-        # --- 15. [V4.3 重构] 多渠道通知分发 ---
-        # =================================================================
+        # --- 14. [V4.3] 多渠道通知分发 ---
+        self._handle_notifications(
+            ai_summary, text_report, article_full_path, html_filename_full_path
+        )
 
-        # 15.1 准备通知内容
+    def _handle_notifications(
+        self, ai_summary, text_report, article_full_path, html_filename_full_path
+    ):
+        """
+        [V4.5] 提取通知逻辑到单独的私有方法，保持 run() 清晰
+        """
         notification_subject = f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
-        # 优先使用 AI 摘要作为正文，如果没有则回退到文本报告
         notification_content = ai_summary if ai_summary else text_report
-
-        # 15.2 准备附件 (PDF or HTML)
         attachment_to_send = None
 
         if self.context.attach_format == "pdf":
@@ -260,18 +251,15 @@ class ReportOrchestrator:
                 logger.warning("⚠️ 指定了 PDF 格式但未生成文章，回退使用 HTML 附件。")
                 attachment_to_send = html_filename_full_path
         else:
-            # 默认 HTML
             attachment_to_send = html_filename_full_path
 
-        # 15.3 加载并执行所有激活的通知器
         try:
-            # [V4.3] 动态导入工厂，避免顶层 import 错误
             from notifiers.factory import get_active_notifiers
 
             active_notifiers = get_active_notifiers(self.context)
 
             if not active_notifiers:
-                logger.info("ℹ️ 没有激活任何通知渠道 (未配置邮箱或 Webhook)，跳过发送。")
+                logger.info("ℹ️ 没有激活任何通知渠道，跳过发送。")
             else:
                 logger.info(f"🚀 开始通过 {len(active_notifiers)} 个渠道推送报告...")
                 for notifier in active_notifiers:
@@ -287,8 +275,6 @@ class ReportOrchestrator:
                     )
 
         except ImportError:
-            logger.error(
-                "❌ 无法导入 notifiers.factory。请确保 notifiers 目录存在且包含 __init__.py (或作为 namespace package)。"
-            )
+            logger.error("❌ 无法导入 notifiers.factory。")
         except Exception as e:
             logger.error(f"❌ 通知分发过程发生异常: {e}", exc_info=True)
