@@ -96,7 +96,7 @@ def generate_html_report(
     ai_summary_html = ""
     if ai_summary:
         ai_summary_html = markdown.markdown(
-            ai_summary, extensions=["fenced_code", "tables"]
+            ai_summary, extensions=["fenced_code", "tables", "sane_lists", "nl2br"]
         )
 
     # 2.2 按作者分组提交 (方便模板遍历)

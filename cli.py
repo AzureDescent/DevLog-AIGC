@@ -173,12 +173,18 @@ def run_cli():
 
     elif args.repo_path:
         # (V3.8) 直接路径模式
-        repo_path = os.path.abspath(args.repo_path)
+        # [V4.8 修复] 如果是远程 URL，保持原样；否则转为绝对路径
+        if args.repo_path.startswith(("http://", "https://", "git@")):
+            repo_path = args.repo_path
+            logger.info(f"ℹ️ (V4.8) 检测到远程仓库 URL: {repo_path}")
+        else:
+            repo_path = os.path.abspath(args.repo_path)
+            logger.info(f"ℹ️ (V3.8) 使用直接路径 {repo_path}")
+
         project_data_path = config_manager.get_project_data_path(
             data_root_path, repo_path
         )
         project_config = config_manager.load_project_config(project_data_path)
-        logger.info(f"ℹ️ (V3.8) 使用直接路径 {repo_path}")
 
     else:
         logger.error(

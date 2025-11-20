@@ -85,12 +85,35 @@ def save_project_config(project_data_path: str, config_data: Dict[str, Any]):
 
 
 def get_project_data_path(data_root_path: str, repo_path: str) -> str:
-    """(V3.8) 辅助函数：根据仓库路径获取其数据存储路径"""
-    repo_path_abs = os.path.abspath(repo_path)
-    if os.path.basename(repo_path_abs) == ".":
-        project_name = "current_dir_project"
+    """
+    (V3.8) 辅助函数：根据仓库路径获取其数据存储路径
+    [V4.8] 增加对远程 URL 的支持，自动提取仓库名作为项目名
+    """
+    project_name = "unknown_project"
+
+    # 1. 处理远程 URL (http/https/git)
+    if repo_path.startswith(("http://", "https://", "git@")):
+        # 简单提取：取 URL 最后一个斜杠后的内容，并去除 .git
+        # 例如 https://github.com/torvalds/linux -> linux
+        try:
+            base_name = repo_path.rstrip("/").split("/")[-1]
+            if base_name.endswith(".git"):
+                base_name = base_name[:-4]
+            # 处理 git@ 格式可能包含的冒号
+            if ":" in base_name:
+                base_name = base_name.split(":")[-1]
+            project_name = base_name
+        except Exception:
+            project_name = "remote_repo"
+
+    # 2. 处理本地路径
     else:
-        project_name = os.path.basename(repo_path_abs)
+        repo_path_abs = os.path.abspath(repo_path)
+        if os.path.basename(repo_path_abs) == ".":
+            project_name = "current_dir_project"
+        else:
+            project_name = os.path.basename(repo_path_abs)
+
     return os.path.join(data_root_path, project_name)
 
 
