@@ -231,6 +231,59 @@ class ReportOrchestrator:
     def _handle_notifications(
         self, ai_summary, text_report, article_full_path, html_filename_full_path
     ):
-        # ... (保持 V4.5 逻辑不变)
-        # 为了完整性，这里可以从之前代码复制，但核心在于 run 方法的 hooks
-        pass
+        """
+        [V4.5/4.6] 完整的通知分发与附件处理逻辑
+        """
+        notification_subject = f"Git工作日报 - {datetime.now().strftime('%Y-%m-%d')}"
+        notification_content = ai_summary if ai_summary else text_report
+        attachment_to_send = None
+
+        # --- 1. PDF 转换逻辑 (这就是之前丢失的部分！) ---
+        if self.context.attach_format == "pdf":
+            if article_full_path:
+                logger.info(f"🤖 正在启动 PDF 转换 (用于附件发送)...")
+                # 调用转换器
+                pdf_full_path = pdf_converter.convert_md_to_pdf(
+                    article_full_path, self.context
+                )
+                if pdf_full_path:
+                    attachment_to_send = pdf_full_path
+                else:
+                    logger.warning("⚠️ PDF 转换失败，回退使用 HTML 附件。")
+                    attachment_to_send = html_filename_full_path
+            else:
+                logger.warning("⚠️ 指定了 PDF 格式但未生成文章，回退使用 HTML 附件。")
+                attachment_to_send = html_filename_full_path
+        else:
+            # 默认使用 HTML
+            attachment_to_send = html_filename_full_path
+
+        # --- 2. 通知推送逻辑 ---
+        try:
+            from notifiers.factory import get_active_notifiers
+
+            active_notifiers = get_active_notifiers(self.context)
+
+            if not active_notifiers:
+                # 即使不发邮件，如果生成了 PDF，我们也打印一下路径提示用户
+                if attachment_to_send and attachment_to_send.endswith(".pdf"):
+                    logger.info(f"✅ [本地归档] PDF 已生成: {attachment_to_send}")
+                logger.info("ℹ️ 没有激活任何通知渠道，跳过发送。")
+            else:
+                logger.info(f"🚀 开始通过 {len(active_notifiers)} 个渠道推送报告...")
+                for notifier in active_notifiers:
+                    logger.info(f"   >> 正在调用: {notifier.name}")
+                    success = notifier.send(
+                        subject=notification_subject,
+                        content=notification_content,
+                        attachment_path=attachment_to_send,
+                    )
+                    status_icon = "✅" if success else "❌"
+                    print(
+                        f"[{status_icon} 推送结果] {notifier.name}: {'成功' if success else '失败'}"
+                    )
+
+        except ImportError:
+            logger.error("❌ 无法导入 notifiers.factory。")
+        except Exception as e:
+            logger.error(f"❌ 通知分发过程发生异常: {e}", exc_info=True)
