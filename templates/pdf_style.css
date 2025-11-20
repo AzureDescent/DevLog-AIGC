@@ -37,7 +37,7 @@
 
 /* 3. 全局样式 (保持不变) */
 body {
-    font-family: "Docker-WQY", sans-serif;
+    font-family: "Docker-WQY", "WenQuanYi Micro Hei", "Noto Color Emoji", "Segoe UI Emoji", sans-serif;
     line-height: 1.6;
     color: #333;
     font-size: 11pt;
